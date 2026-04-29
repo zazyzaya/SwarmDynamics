@@ -1,0 +1,31 @@
+Genetic algo for swarm dynamics
+Each drone emits weak signal (how weak = gene) that decays according to inv sq law
+Use this signal to determine distance and role of drone 
+Drones may change role according to some prob function 
+Drones have additional signal for which "clan" they're with if they want to make sub-swarms
+
+Each drone knows: 
+	last transmitted location of target
+	strength/type of signal of nearest neighbors (assume a 3d vector)
+	its own role 
+	its own velocity vector
+	its current clan 
+	distance above ground
+	relative location to stable point
+
+Objectives:
+	don't collide with neighbors 
+	don't collide with ground
+	destroy (possibly moving) target(s) 
+	do so as quickly as possible 
+
+Actions: 
+	Fire weapon (optional; limited capacity) 
+	Change role (optional)
+	Accelerate in direction (optional) 
+	Message pass (passive) 
+		current location 
+		current role 
+		location of target (if visible) 
+		velocity vector 
+		
