@@ -24,8 +24,10 @@ class Params(IntEnum):
     MARGIN=5    # How low they dare to swoop
     FEAR=6      # How much they avoid predators
     DESIRE=7    # How much they desire targets
-    BIAS_VAL=8  # How much each dron biases clan pull
-    BIAS=9      # Preference to follow each clan
+    FOLLOW_BIAS_VAL=8   # How much each dron biases clan pull
+    LISTEN_BIAS_VAL=9   # How much to weight recon from others
+    FOLLOW_BIAS=10       # Preference to follow each clan
+    LISTEN_BIAS=10+NUM_CLANS    # Preference to listen to each clan
 
 class DroneFlock:
     def __init__(self, n, clans, offset=torch.tensor([0,0,0]), genes=None):
@@ -42,20 +44,25 @@ class DroneFlock:
         self.clans[torch.arange(n), clans] = 1
 
         if genes is None:
+            # Decent starting params after some fiddling
             self.genes = torch.tensor([[
                 0.05, 0.05, 0.0005,
-                0.2, 0.1, 0.01,
-                0, 0.1, 0.05
+                0.2, 0.1, 0.1,
+                0, 0.25, 0.05, 0.1
             ]]).repeat(n, 1)
 
-            preference = torch.rand(n, NUM_CLANS)
-            preference = preference / preference.sum(dim=1,keepdim=True)
-            self.genes = torch.cat([self.genes, preference], dim=1)
+            # Initialize clan biases randomly
+            b1 = 1-2*torch.rand(n, NUM_CLANS)
+            b2 = 1-2*torch.rand(n, NUM_CLANS)
+
+            self.genes = torch.cat([self.genes, b1, b2], dim=1)
+
         else:
             self.genes = genes
 
         # Genes will go away when agents die. This keeps a backup copy
         self.genepool = self.genes
+        self.id = torch.arange(self.n)
 
     def __starting_loc(self, offset=torch.zeros(3)):
         s = (torch.rand(3) - 0.5) * 0.5
@@ -72,14 +79,17 @@ class DroneFlock:
 
         dead = (self.s[:, Z] <= 0).logical_or(collisions).logical_or(killed)
 
+        collision_coords = self.s[collisions]
+
         # Remove dead drones from the simulation
         self.s = self.s[~dead]
         self.v = self.v[~dead]
         self.clans = self.clans[~dead]
         self.genes = self.genes[~dead]
+        self.id = self.id[~dead]
         self.n = self.s.size(0)
 
-        return self.n == 0
+        return self.n == 0, collision_coords
 
     def boid(self, other_s):
         # Could use F.pdist but don't want to deal with indexing
@@ -134,6 +144,8 @@ class DroneFlock:
         if other_s is not None and other_s.numel() > 0:
             # Calculate distances to all enemies -> Shape: (N_self, M_other)
             enemy_dist = torch.norm(self.s[:, None] - other_s, dim=2, p=2)
+            enemy_collisions = (enemy_dist < COLLISION_DIST).sum(dim=1).bool()
+            collisions = collisions.logical_or(enemy_collisions)
 
             # Find enemies within vision
             enemy_visible = enemy_dist < COMM_RANGE
@@ -152,37 +164,50 @@ class DroneFlock:
             # Apply to total velocity
             tot_dv += desire_dv + fear_dv
 
-        # Step 6: Follow biased members
-        # Count visible members of each clan (N, C)
+            # Step 6: Send intel to others
+            valid_senders = self.clans * has_enemies
+            broadcast = valid_senders.unsqueeze(-1) * enemy_center.unsqueeze(1) # N x clans x 3
+
+            # Assume drones can communicate with all others
+            global_msg_sum = broadcast.sum(dim=0)           # Shape: (C, 3)
+            global_msg_counts = valid_senders.sum(dim=0)    # Shape: (C,)
+            msg = global_msg_sum / global_msg_counts.clamp(min=1).unsqueeze(-1)
+
+            # Respond to received messages
+            listen_prefs = self.genes[:, Params.LISTEN_BIAS : Params.LISTEN_BIAS + NUM_CLANS]
+            has_signal = (global_msg_counts > 0).float().unsqueeze(0)
+            active_listen_prefs = listen_prefs * has_signal
+
+            # CALCULATE DIRECTION FIRST: Vector to each reported enemy center (N, C, 3)
+            channel_dv = msg.unsqueeze(0) - self.s.unsqueeze(1)
+
+            # Multiply by preferences. Negative prefs will naturally push them away!
+            radio_dv = (active_listen_prefs.unsqueeze(-1) * channel_dv).sum(dim=1)
+            radio_dv *= self.genes[:, Params.LISTEN_BIAS_VAL : Params.LISTEN_BIAS_VAL + 1]
+
+            tot_dv += radio_dv
+
+        # Step 7: Follow biased members
         local_clan_counts = visible.float() @ self.clans
 
-        # Get local sum of velocities for each clan
         # Map velocities into their clan channels: (N, C, 3)
         clan_v_split = self.clans.unsqueeze(-1) * self.v.unsqueeze(1)
-
-        # Multiply visible mask (N, N) with flattened velocities (N, C*3)
         local_clan_v_sum = visible.float() @ clan_v_split.view(self.n, NUM_CLANS * 3)
         local_clan_v_sum = local_clan_v_sum.view(self.n, NUM_CLANS, 3)
 
-        # Calculate local average (N, C, 3)
         local_clan_v_avg = local_clan_v_sum / local_clan_counts.clamp(min=1).unsqueeze(-1)
 
-        # Filter preferences: Only care about clans that are currently visible
-        preferences = self.genes[:, -NUM_CLANS:]
+        preferences = self.genes[:, Params.FOLLOW_BIAS:Params.FOLLOW_BIAS + NUM_CLANS]
         visible_clans_mask = (local_clan_counts > 0).float()
         active_preferences = preferences * visible_clans_mask
 
-        # Re-normalize so active preferences sum to 1.0
-        pref_sums = active_preferences.sum(dim=1, keepdim=True)
-        has_preferred_visible = (pref_sums > 0).float()
-        normalized_preferences = active_preferences / pref_sums.clamp(min=1e-5)
+        # Sum the weighted velocities directly. Negative preferences will cause
+        # the drone to want to fly in the exact opposite direction!
+        preferred_v = (active_preferences.unsqueeze(-1) * local_clan_v_avg).sum(dim=1)
 
-        # Apply preferences to calculate preferred trajectory
-        preferred_v = (normalized_preferences.unsqueeze(-1) * local_clan_v_avg).sum(dim=1)
-
-        # Lerp velocity (only if they actually see a preferred clan)
-        bias_weight = self.genes[:, Params.BIAS_VAL:Params.BIAS_VAL+1] * has_preferred_visible
-        tot_dv = torch.lerp(tot_dv, preferred_v, weight=bias_weight)
+        # Apply the weight as a standard additive force (replacing lerp)
+        bias_weight = self.genes[:, Params.FOLLOW_BIAS_VAL:Params.FOLLOW_BIAS_VAL+1]
+        tot_dv += preferred_v * bias_weight
 
         # Adjust for speed limits
         speed = torch.sqrt(tot_dv.pow(2).sum(dim=1))

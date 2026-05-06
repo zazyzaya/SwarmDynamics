@@ -48,7 +48,9 @@ with dpg.window(label="Pixel Renderer", width=SIZE, height=SIZE):
 dpg.show_viewport()
 
 game_over = torch.zeros(2)
+first_game_over = True
 active_explosions = []
+steps = 0
 while dpg.is_dearpygui_running():
     # 1. Clear the previous frame's pixels
     dpg.delete_item("main_drawlist", children_only=True)
@@ -81,8 +83,8 @@ while dpg.is_dearpygui_running():
         dpg.draw_circle(
             center=exp['pos'],
             radius=exp['radius'],
-            color=(255, 100, 0, 255),  # Orange-red outline
-            fill=(255, 50, 0, 150),    # Transparent red fill
+            color=exp['color'],  # Orange-red outline
+            fill=exp['fill'],    # Transparent red fill
             parent="main_drawlist"
         )
 
@@ -98,8 +100,10 @@ while dpg.is_dearpygui_running():
 
     if not game_over.any():
         # Update physics
-        game_over, new_explosions = df.update()
+        game_over, new_explosions, b_col, r_col = df.update()
+        steps += 1
 
+        # Add drones shot down
         if new_explosions is not None and len(new_explosions) > 0:
             # Convert PyTorch tensor to scaled pixel coordinates
             pixel_exps = (new_explosions[:, :2] * SIZE).detach().tolist()
@@ -108,7 +112,33 @@ while dpg.is_dearpygui_running():
                 active_explosions.append({
                     'pos': p,
                     'radius': 1.0,
-                    'expanding': True
+                    'expanding': True,
+                    'color': (255, 255, 0, 255),
+                    'fill': (255, 150, 0, 150)
+                })
+
+        # Add collisions
+        if b_col is not None and len(b_col):
+            pixel_exps = (b_col[:, :2] * SIZE).detach().tolist()
+
+            for p in pixel_exps:
+                active_explosions.append({
+                    'pos': p,
+                    'radius': 1.0,
+                    'expanding': True,
+                    'color': (0, 100, 255, 255),
+                    'fill': (0, 50, 255, 150)
+                })
+        if r_col is not None and len(r_col):
+            pixel_exps = (r_col[:, :2] * SIZE).detach().tolist()
+
+            for p in pixel_exps:
+                active_explosions.append({
+                    'pos': p,
+                    'radius': 1.0,
+                    'expanding': True,
+                    'color': (255, 0, 0, 255),
+                    'fill': (255, 25, 0, 150)
                 })
 
     else:
@@ -118,6 +148,13 @@ while dpg.is_dearpygui_running():
         dpg.draw_text(
             pos=(center_x, center_y - 40),
             text="Game over", size=40,
+            color=(255, 255, 255, 255),
+            parent='main_drawlist'
+        )
+
+        dpg.draw_text(
+            pos=(center_x, center_y + 40),
+            text=f"   {steps} Steps", size=20,
             color=(255, 255, 255, 255),
             parent='main_drawlist'
         )
@@ -139,10 +176,27 @@ while dpg.is_dearpygui_running():
         else:
             dpg.draw_text(
                 pos=(center_x, center_y),
-                text="Everyone lost somehow..",
+                text="    Draw!",
                 size=30, color=(0, 255, 0, 255),
                 parent='main_drawlist'
             )
+
+        if first_game_over:
+            first_game_over = False
+            b_s, b_k, r_s, r_k = df.get_stats(top_k=10)
+
+            print("Longest Livers:")
+            print("Blue")
+            print(b_s)
+            print("Red")
+            print(r_s)
+            print('\n')
+            print("Harshest Killers:")
+            print("Blue")
+            print(b_k)
+            print("Red")
+            print(r_k)
+
 
     # 3. Render the frame
     dpg.render_dearpygui_frame()
