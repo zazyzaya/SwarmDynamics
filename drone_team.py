@@ -1,16 +1,19 @@
 from enum import IntEnum
 
 import torch
-from torch.nn import functional as F
 
-NUM_CLANS = 10
+NUM_CLANS = 5
 DELTA_T = 0.002
-FRICTION = 0.95
 
 X=0; Y=1; Z=2
+CEILING = 5.
+TURN_FACTOR = 1.5
+TURN_MARGIN = 0.1
+
 COMM_RANGE = 0.15 # Arbitrary
 MAX_SPEED = 6
 MIN_SPEED = 2
+COLLISION_DIST = 0.01
 
 class Params(IntEnum):
     ALPHA=0     # Crowding
@@ -22,7 +25,7 @@ class Params(IntEnum):
     FEAR=6      # How much they avoid predators
     DESIRE=7    # How much they desire targets
     BIAS_VAL=8  # How much each dron biases clan pull
-    BIAS=9     # Preference to follow each clan
+    BIAS=9      # Preference to follow each clan
 
 class DroneFlock:
     def __init__(self, n, clans, offset=torch.tensor([0,0,0]), genes=None):
@@ -41,8 +44,8 @@ class DroneFlock:
         if genes is None:
             self.genes = torch.tensor([[
                 0.05, 0.05, 0.0005,
-                0.2, 0.1, 0.016,
-                1, 0.05
+                0.2, 0.1, 0.01,
+                0, 0.1, 0.05
             ]]).repeat(n, 1)
 
             preference = torch.rand(n, NUM_CLANS)
@@ -51,28 +54,38 @@ class DroneFlock:
         else:
             self.genes = genes
 
+        # Genes will go away when agents die. This keeps a backup copy
+        self.genepool = self.genes
+
     def __starting_loc(self, offset=torch.zeros(3)):
         s = (torch.rand(3) - 0.5) * 0.5
         s[Z] = 1
         s += offset
         return s
 
-    def update(self):
-        self.boid()
+    def update(self, other_s, killed=None):
+        collisions = self.boid(other_s)
         self.s += self.v * DELTA_T
 
-        dead = self.s[:, Z] <= float('-inf')
-        killed = torch.logical_and(dead, ~self.alive)
+        if killed is None:
+            killed = torch.zeros_like(collisions)
 
-        self.alive[dead] = False
-        self.v[dead] = torch.zeros(3)
+        dead = (self.s[:, Z] <= 0).logical_or(collisions).logical_or(killed)
 
-        return killed
+        # Remove dead drones from the simulation
+        self.s = self.s[~dead]
+        self.v = self.v[~dead]
+        self.clans = self.clans[~dead]
+        self.genes = self.genes[~dead]
+        self.n = self.s.size(0)
 
-    def boid(self):
+        return self.n == 0
+
+    def boid(self, other_s):
         # Could use F.pdist but don't want to deal with indexing
         # the upper triangle rn. TODO use that, bc it's a little faster
         dist = torch.norm(self.s[:, None]-self.s, dim=2, p=2)
+        collisions = (dist.fill_diagonal_(float('inf')) < COLLISION_DIST).sum(dim=1).bool()
 
         # Step 1: Uncrowd the boids
         too_close = dist < self.genes[:, Params.PROTECTED:Params.PROTECTED+1]
@@ -99,15 +112,47 @@ class DroneFlock:
         cohesion_dv = (dv - self.s) * has_neighbors * self.genes[:, Params.GAMMA:Params.GAMMA+1]
 
         # Step 4: Boundary avoidance
-        too_low = (self.genes[:, Params.MARGIN:Params.MARGIN+1] - self.s).clamp(min=0)
-        too_high = (self.s - (1-self.genes[:, Params.MARGIN:Params.MARGIN+1])).clamp(min=0)
+        min_bounds = self.s.new_tensor([TURN_MARGIN, TURN_MARGIN, 0]).repeat(self.n, 1)
+        min_bounds[:, Z] = self.genes[:, Params.MARGIN]
+        max_bounds = self.s.new_tensor([1.0, 1.0, CEILING]) - TURN_MARGIN
 
-        dv = too_low - too_high
-        turn_dv = dv * self.genes[:, Params.TURN:Params.TURN+1]
+        # Calculate penetration depth into the margins
+        too_low = (min_bounds - self.s).clamp(min=0)
+        too_high = (self.s - max_bounds).clamp(min=0)
+
+        # Apply standard TURN factor to all axes (Walls and Ceiling)
+        turn_dv = (too_low - too_high) * TURN_FACTOR
+
+        # Override ground avoidance
+        ground_push = too_low[:, Z] * self.genes[:, Params.TURN]
+        ceiling_push = too_high[:, Z] * TURN_FACTOR
+        turn_dv[:, Z] = ground_push - ceiling_push
 
         tot_dv = self.v + close_dv + align_dv + cohesion_dv + turn_dv
 
-        # Step 5: Follow biased members
+        # Step 5: Enemy Interaction
+        if other_s is not None and other_s.numel() > 0:
+            # Calculate distances to all enemies -> Shape: (N_self, M_other)
+            enemy_dist = torch.norm(self.s[:, None] - other_s, dim=2, p=2)
+
+            # Find enemies within vision
+            enemy_visible = enemy_dist < COMM_RANGE
+            enemy_counts = enemy_visible.sum(dim=1, keepdim=True)
+            has_enemies = (enemy_counts > 0).float()
+
+            # Calculate the center of mass of visible enemies
+            # (N, M) @ (M, 3) -> (N, 3)
+            enemy_sum = enemy_visible.float() @ other_s
+            enemy_center = enemy_sum / enemy_counts.clamp(min=1)
+
+            # Calculate forces
+            desire_dv = (enemy_center - self.s) * has_enemies * self.genes[:, Params.DESIRE:Params.DESIRE+1]
+            fear_dv = (self.s - enemy_center) * has_enemies * self.genes[:, Params.FEAR:Params.FEAR+1]
+
+            # Apply to total velocity
+            tot_dv += desire_dv + fear_dv
+
+        # Step 6: Follow biased members
         # Count visible members of each clan (N, C)
         local_clan_counts = visible.float() @ self.clans
 
@@ -147,3 +192,5 @@ class DroneFlock:
         tot_dv[too_slow] = (tot_dv[too_slow]/speed[too_slow, None]) * MIN_SPEED
 
         self.v = tot_dv
+
+        return collisions
