@@ -2,18 +2,20 @@ import dearpygui.dearpygui as dpg
 
 from sim import Env
 
+
+SIZE = 1000
 df = Env(100, 100)
 
 dpg.create_context()
-dpg.create_viewport(title='PyTorch + Dear PyGui', width=600, height=600)
+dpg.create_viewport(title='PyTorch + Dear PyGui', width=SIZE, height=SIZE)
 dpg.setup_dearpygui()
 
 df = Env(100, 100)
 
 # Define the UI structure ONCE outside the loop
-with dpg.window(label="Pixel Renderer", width=600, height=600):
+with dpg.window(label="Pixel Renderer", width=SIZE, height=SIZE):
     # We give the drawlist a 'tag' so we can refer to it later
-    with dpg.drawlist(width=500, height=500, tag="main_drawlist"):
+    with dpg.drawlist(width=SIZE, height=SIZE, tag="main_drawlist"):
         pass
 
 dpg.show_viewport()
@@ -23,12 +25,12 @@ while dpg.is_dearpygui_running():
     # 1. Clear the previous frame's pixels
     dpg.delete_item("main_drawlist", children_only=True)
 
-    blue_pixels = (df.blue.s[df.blue.alive, :2] * 500 + 250).detach().tolist()
-    red_pixels = (df.red.s[df.red.alive, :2] * 500 + 250).detach().tolist()
+    blue_pixels = (df.blue.s[df.blue.alive, :2] * SIZE).detach().tolist()
+    red_pixels = (df.red.s[df.red.alive, :2] * SIZE).detach().tolist()
 
     # 2. Draw the new positions
     for p in blue_pixels:
-        dpg.draw_circle(center=p, radius=1.5, color=(0, 0, 255, 255), parent="main_drawlist")
+        dpg.draw_circle(center=p, radius=1.5, color=(0, 255, 255, 255), parent="main_drawlist")
 
     for p in red_pixels:
         dpg.draw_circle(center=p, radius=1.5, color=(255, 0, 0, 255), parent="main_drawlist")
