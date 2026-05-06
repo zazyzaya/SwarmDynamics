@@ -29,6 +29,16 @@ class Params(IntEnum):
     FOLLOW_BIAS=10       # Preference to follow each clan
     LISTEN_BIAS=10+NUM_CLANS    # Preference to listen to each clan
 
+    LEN = LISTEN_BIAS+NUM_CLANS
+    N_BIASES = 2
+
+# Decent starting params after some fiddling
+DEFAULT = torch.tensor([
+    0.05, 0.05, 0.0005,
+    0.2, 0.1, 0.1,
+    0, 0.25, 0.05, 0.1
+])
+
 class DroneFlock:
     def __init__(self, n, clans, offset=torch.tensor([0,0,0]), genes=None):
         self.n = n
@@ -44,12 +54,7 @@ class DroneFlock:
         self.clans[torch.arange(n), clans] = 1
 
         if genes is None:
-            # Decent starting params after some fiddling
-            self.genes = torch.tensor([[
-                0.05, 0.05, 0.0005,
-                0.2, 0.1, 0.1,
-                0, 0.25, 0.05, 0.1
-            ]]).repeat(n, 1)
+            self.genes = DEFAULT.repeat(n, 1)
 
             # Initialize clan biases randomly
             b1 = 1-2*torch.rand(n, NUM_CLANS)
