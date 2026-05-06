@@ -147,11 +147,3 @@ class DroneFlock:
         tot_dv[too_slow] = (tot_dv[too_slow]/speed[too_slow, None]) * MIN_SPEED
 
         self.v = tot_dv
-
-
-    def message(self):
-        return torch.cat([
-            self.v,
-            self.s,
-            self.roles
-        ])
