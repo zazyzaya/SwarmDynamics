@@ -5,23 +5,36 @@ from src.dna import GenePool
 from src.env import Env
 
 SIZE = 1000
+DEVICE = 0
 
-blue_gp = GenePool(100)
-blue_gp.reproduce(torch.arange(100))
+gp = GenePool.load('genes/current.pt')
+default = GenePool(100, device=DEVICE, use_baseline=True)
 
-red_gp = GenePool(100)
-red_gp.reproduce(torch.arange(100))
+blue_genes, blue_sexes = gp.phenotype(torch.randperm(gp.population)[:100])
+#blue_genes, blue_sexes = default.phenotype()
+red_genes, red_sexes = default.phenotype()
 
-df = Env(*blue_gp.phenotype(), *red_gp.phenotype())
+df = Env(
+    blue_genes.unsqueeze(0), blue_sexes.unsqueeze(0),
+    red_genes.unsqueeze(0), red_sexes.unsqueeze(0)
+)
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
+    alive_idx = swarm.alive[0].nonzero(as_tuple=True)[0]
+    # If everyone is dead, return nothing
+    if len(alive_idx) == 0:
+        return []
+
+    s = swarm.s[0, alive_idx]
+    v = swarm.v[0, alive_idx]
+
     # 1. 2D positions and dynamically scaled sizes based on Z-height
-    pos_2d = swarm.s[:, :2] * SIZE
-    z = swarm.s[:, 2:3]
+    pos_2d = s[:, :2] * SIZE
+    z = s[:, 2:3]
     scale = base_scale + (z * z_factor)
 
     # 2. Get normalized 2D velocity heading
-    v_2d = swarm.v[:, :2]
+    v_2d = v[:, :2]
     speed = torch.norm(v_2d, dim=1, keepdim=True).clamp(min=1e-5)
     heading = v_2d / speed
 
@@ -107,6 +120,7 @@ while dpg.is_dearpygui_running():
     if not game_over.any():
         # Update physics
         game_over, new_explosions, b_col, r_col = df.update(viz=True)
+        game_over = game_over[0]
         steps += 1
 
         # Add drones shot down

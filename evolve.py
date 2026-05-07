@@ -11,93 +11,148 @@ from src.env import Env
 MAX_GAME_LEN = 5000
 POPULATION = 10_000
 GAME_SIZE = 100
-DEVICE = 'cpu' # Why is this faster than my GPU??
+WIN_BONUS = 1000 # Arbitrary
+DEVICE = 0 # Why is this faster than my GPU??
 
 def generation(gene_pool: GenePool):
     st = time()
-    lineup = torch.randperm(gene_pool.population)
-    n_games = gene_pool.population // (GAME_SIZE*2)
+    lineup = torch.randperm(gene_pool.population, device=DEVICE)
+
+    # Calculate how many simultaneous games we are running
+    BATCH_SIZE = gene_pool.population // (GAME_SIZE * 2)
+    n_winners = GAME_SIZE // 10
 
     print("\tSimulating... ", end='', flush=True)
-    def game(g):
-        winners = []
 
-        blue = lineup[g*GAME_SIZE : (g+1)*GAME_SIZE]
-        red = lineup[(g+1)*GAME_SIZE : (g+2)*GAME_SIZE]
+    # 1. Grab the flat IDs for both teams
+    blue_idx_flat = lineup[:BATCH_SIZE * GAME_SIZE]
+    red_idx_flat = lineup[BATCH_SIZE * GAME_SIZE : BATCH_SIZE * GAME_SIZE * 2]
 
-        env = Env(*gene_pool.phenotype(blue), *gene_pool.phenotype(red))
-        game_over = torch.zeros(2)
+    # 2. Extract phenotype tuples
+    blue_genes, blue_sexes = gene_pool.phenotype(blue_idx_flat)
+    red_genes, red_sexes = gene_pool.phenotype(red_idx_flat)
 
-        for _ in range(MAX_GAME_LEN):
-            game_over = env.update()
-            if game_over.any():
-                break
-
-        draw = game_over.sum() == 0 or game_over.sum() == 2
-        b_s, b_k, r_s, r_k = env.get_stats(top_k=GAME_SIZE//10)
-
-        # Top half of winners from both teams
-        if draw:
-            n = GAME_SIZE//10
-            winners.append(blue[b_s.index[:n]])
-            winners.append(blue[b_k.index[:n]])
-            winners.append(red[r_s.index[:n]])
-            winners.append(red[r_k.index[:n]])
-
-        # Otherwise, just the winning team survives
-        else:
-            team = blue if game_over[1] else red
-            killers = b_k if game_over[1] else r_k
-            survivors = b_s if game_over[1] else r_s
-
-            winners.append(team[killers.index])
-            winners.append(team[survivors.index])
-
-        return torch.cat(winners)
-
-    winners = Parallel(n_games, prefer='processes')(
-        delayed(game)(g) for g in range(0, n_games*2, 2)
+    # 3. Reshape into 3D Batches: (Batch, Game_Size, Features)
+    env = Env(
+        blue_genes.view(BATCH_SIZE, GAME_SIZE, -1),
+        blue_sexes.view(BATCH_SIZE, GAME_SIZE),
+        red_genes.view(BATCH_SIZE, GAME_SIZE, -1),
+        red_sexes.view(BATCH_SIZE, GAME_SIZE)
     )
-    en = time()
 
+    # Trackers to catch when specific games finish within the massive batch
+    final_game_over = torch.zeros(BATCH_SIZE, 2, dtype=torch.bool, device=DEVICE)
+    finished = torch.zeros(BATCH_SIZE, dtype=torch.bool, device=DEVICE)
+
+    # 4. The Unified Physics Loop
+    for _ in range(MAX_GAME_LEN):
+        step_game_over = env.update() # Returns (B, 2)
+
+        # Identify games that finished on this exact frame
+        just_finished = step_game_over.any(dim=1) & ~finished
+
+        # Lock in their final win/loss state
+        final_game_over[just_finished] = step_game_over[just_finished]
+        finished = finished | just_finished
+
+        # Break only when ALL 50 games are done
+        if finished.all():
+            break
+
+    # 5. Collect Winners
+    scores = torch.empty(gene_pool.population, device=DEVICE)
+
+    # Reshape the original IDs so we can slice them per-game
+    blue_idx = blue_idx_flat.view(BATCH_SIZE, GAME_SIZE)
+    red_idx = red_idx_flat.view(BATCH_SIZE, GAME_SIZE)
+
+    # Rank agents
+    for b in range(BATCH_SIZE):
+        game_over = final_game_over[b]
+        draw = game_over.sum() == 0 or game_over.sum() == 2
+
+        blue_team = blue_idx[b]
+        red_team = red_idx[b]
+
+        if not draw and game_over[1]:
+            # Team bonuses for winning quickly
+            game_len = env.b_alive_time[b].max()
+            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
+            speed_bonus *= (WIN_BONUS / 2)
+            scores[blue_team] += WIN_BONUS + speed_bonus
+
+            # Individual bonuses for valor and survival
+            scores[blue_team] += env.b_kills[b] * WIN_BONUS / 20
+            scores[blue_team] += (env.b_alive_time[b] < game_len).float() * (-WIN_BONUS/100)
+
+        elif not draw and game_over[0]:
+            # Team bonuses for winning quickly
+            game_len = env.r_alive_time[b].max()
+            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
+            speed_bonus *= (WIN_BONUS / 2)
+            scores[red_team] += WIN_BONUS + speed_bonus
+
+            # Individual bonuses for valor and survival
+            scores[red_team] += env.r_kills[b] * WIN_BONUS / 20
+            scores[red_team] += (env.r_alive_time[b] < game_len).float() * (-WIN_BONUS/100)
+
+
+    en = time()
     print(f" ({en-st:0.2f}s)")
 
-    winners = torch.cat(winners)
+    winners = scores.sort(descending=True).indices[:n_winners]
     gene_pool.reproduce(winners)
 
 
 def evaluate(gene_pool: GenePool):
     st = time()
-    default = GenePool(GAME_SIZE, device=DEVICE)
+    default = GenePool(GAME_SIZE, device=DEVICE, use_baseline=True)
 
     lineup = torch.randperm(gene_pool.population)
-    n_games = gene_pool.population // GAME_SIZE
+    BATCH_SIZE = gene_pool.population // GAME_SIZE
 
     print("\tEvaluating... ", end='', flush=True)
-    def game(g):
-        blue = lineup[g*GAME_SIZE : (g+1)*GAME_SIZE]
 
-        env = Env(*gene_pool.phenotype(blue), *default.phenotype())
-        game_over = torch.zeros(2)
+    # 1. Prepare Evolved Swarm
+    blue_idx_flat = lineup[:BATCH_SIZE * GAME_SIZE]
+    blue_genes, blue_sexes = gene_pool.phenotype(blue_idx_flat)
 
-        for step in range(MAX_GAME_LEN):
-            game_over = env.update()
-            if game_over.any():
-                break
+    blue_genes = blue_genes.view(BATCH_SIZE, GAME_SIZE, -1)
+    blue_sexes = blue_sexes.view(BATCH_SIZE, GAME_SIZE)
 
-        # Evolved swarm lost or drew
-        if game_over[0]:
-            return MAX_GAME_LEN
-        else:
-            return step
+    # 2. Prepare Default Swarm
+    default_genes, default_sexes = default.phenotype()
 
-    steps_to_win = Parallel(n_games, prefer='processes')(
-        delayed(game)(g) for g in range(0, n_games)
-    )
+    # Broadcast the single default swarm to fight against every evolved team simultaneously!
+    red_genes = default_genes.unsqueeze(0).expand(BATCH_SIZE, GAME_SIZE, -1)
+    red_sexes = default_sexes.unsqueeze(0).expand(BATCH_SIZE, GAME_SIZE)
+
+    env = Env(blue_genes, blue_sexes, red_genes, red_sexes)
+
+    # Trackers
+    steps_to_win = torch.full((BATCH_SIZE,), MAX_GAME_LEN, device=DEVICE)
+    finished = torch.zeros(BATCH_SIZE, dtype=torch.bool, device=DEVICE)
+
+    for step in range(MAX_GAME_LEN):
+        step_game_over = env.update()
+
+        just_finished = step_game_over.any(dim=1) & ~finished
+
+        # If red lost [1] and blue didn't [0], it's a blue win!
+        blue_won = step_game_over[:, 1] & ~step_game_over[:, 0]
+
+        # Record the exact step for the valid wins
+        valid_wins = just_finished & blue_won
+        steps_to_win[valid_wins] = step
+
+        finished = finished | just_finished
+        if finished.all():
+            break
+
     en = time()
     print(f'({en-st:0.2f}s)')
 
-    return steps_to_win
+    return steps_to_win.cpu().tolist()
 
 def train():
     pool = GenePool(POPULATION, device=DEVICE)

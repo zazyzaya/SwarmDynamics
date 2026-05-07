@@ -32,13 +32,17 @@ DEFAULT = torch.tensor([
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.01,
                  mute_stren=0.25, xover_alpha=0.1, xover_beta=0.05,
-                 device='cpu'):
+                 device='cpu', use_baseline=False):
         # Boid params
-        self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
-        follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
-        listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+        if use_baseline:
+            self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
+            follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+            listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
 
-        self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+            self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+
+        else:
+            self.genes = torch.rand(population, NUM_SEXES, Genes.LEN, device=device) - 0.5
 
         # Prob of spawning children of sex `col` given current sex `row`
         self.meta_genes = torch.rand(population, NUM_SEXES, NUM_SEXES, device=device)
@@ -173,7 +177,7 @@ class GenePool:
         child2 = torch.where(to_cross, child2_genes, p2)
 
         # Randomly select between the two offspring configurations
-        coin_flip = torch.rand(child1.size(0), 1, 1) < 0.5
+        coin_flip = torch.rand(child1.size(0), 1, 1, device=self.device) < 0.5
         children = torch.where(coin_flip, child1, child2)
 
         return children
