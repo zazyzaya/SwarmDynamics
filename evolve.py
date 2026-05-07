@@ -112,7 +112,7 @@ def train():
         avg = MAX_GAME_LEN - (sum(scores) / len(scores))
         max_v = MAX_GAME_LEN - min(scores)
 
-        print(f'[{e}] Avg: {avg}, Best: {max_v}', end='')
+        print(f'[{e}] Avg: {int(avg)}, Best: {max_v}', end='')
         if avg > best:
             best = avg
             print('*')
@@ -120,8 +120,8 @@ def train():
         else:
             print()
 
-        if e % 10_000 == 0:
-            pool.save(f'genes/{e // 10_000 + 1}.pt')
+        if e % 100 == 0:
+            pool.save(f'genes/{e // 100}.pt')
 
         with open(log, 'a') as f:
             f.write(f'{e},{avg},{max_v}\n')
