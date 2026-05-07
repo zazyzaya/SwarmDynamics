@@ -32,12 +32,21 @@ DEFAULT = torch.tensor([
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.01,
                  mute_stren=0.25, xover_alpha=0.1, xover_beta=0.05,
-                 device='cpu', use_baseline=False):
+                 device='cpu', use_baseline=False, hybrid_init=False):
         # Boid params
         if use_baseline:
             self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
             follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
             listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+
+            self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+
+        # Use boid flying params with randomized combat params
+        elif hybrid_init:
+            self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
+            self.genes[..., Genes.FEAR:] = torch.rand(population, NUM_SEXES, Genes.FOLLOW_BIAS-Genes.FEAR, device=device) - 0.5
+            follow_bias = 0.1 * torch.rand(population, NUM_SEXES, NUM_SEXES, device=device) - 0.05
+            listen_bias = 0.1 * torch.rand(population, NUM_SEXES, NUM_SEXES, device=device) - 0.05
 
             self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
 

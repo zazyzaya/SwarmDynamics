@@ -11,16 +11,18 @@ from src.env import Env
 MAX_GAME_LEN = 5000
 POPULATION = 10_000
 GAME_SIZE = 100
+WIN_BONUS = 1000
 DEVICE = 'cpu' # Why is this faster than my GPU??
 
 def generation(gene_pool: GenePool):
     st = time()
     lineup = torch.randperm(gene_pool.population)
     n_games = gene_pool.population // (GAME_SIZE*2)
+    n_winners = gene_pool.population // 10
 
     print("\tSimulating... ", end='', flush=True)
     def game(g):
-        winners = []
+        scores = torch.zeros(GAME_SIZE*2)
 
         blue = lineup[g*GAME_SIZE : (g+1)*GAME_SIZE]
         red = lineup[(g+1)*GAME_SIZE : (g+2)*GAME_SIZE]
@@ -34,35 +36,43 @@ def generation(gene_pool: GenePool):
                 break
 
         draw = game_over.sum() == 0 or game_over.sum() == 2
-        b_s, b_k, r_s, r_k = env.get_stats(top_k=GAME_SIZE//10)
+        # Rank agents
 
-        # Top half of winners from both teams
-        if draw:
-            n = GAME_SIZE//10
-            winners.append(blue[b_s.index[:n]])
-            winners.append(blue[b_k.index[:n]])
-            winners.append(red[r_s.index[:n]])
-            winners.append(red[r_k.index[:n]])
+        game_len = MAX_GAME_LEN
+        if not draw and game_over[1]:
+            # Team bonuses for winning quickly
+            game_len = env.b_alive_time.max()
+            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
+            speed_bonus *= (WIN_BONUS / 2)
+            scores[:GAME_SIZE] += WIN_BONUS + speed_bonus
 
-        # Otherwise, just the winning team survives
-        else:
-            team = blue if game_over[1] else red
-            killers = b_k if game_over[1] else r_k
-            survivors = b_s if game_over[1] else r_s
+        elif not draw and game_over[0]:
+            # Team bonuses for winning quickly
+            game_len = env.r_alive_time.max()
+            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
+            speed_bonus *= (WIN_BONUS / 2)
+            scores[GAME_SIZE:] += WIN_BONUS + speed_bonus
 
-            winners.append(team[killers.index])
-            winners.append(team[survivors.index])
+        # Individual bonuses for valor and survival
+        scores[:GAME_SIZE] += env.b_kills * WIN_BONUS / 20
+        scores[:GAME_SIZE] += (env.b_alive_time < game_len).float() * (-WIN_BONUS/100)
+        scores[GAME_SIZE:] += env.r_kills * WIN_BONUS / 20
+        scores[GAME_SIZE:] += (env.r_alive_time < game_len).float() * (-WIN_BONUS/100)
 
-        return torch.cat(winners)
+        return scores
 
-    winners = Parallel(n_games, prefer='processes')(
+    scores = Parallel(n_games, prefer='processes')(
         delayed(game)(g) for g in range(0, n_games*2, 2)
     )
     en = time()
 
     print(f" ({en-st:0.2f}s)")
 
-    winners = torch.cat(winners)
+    scores = torch.cat(scores)
+    ordered_scores = torch.zeros_like(scores)
+    ordered_scores[lineup] = scores # Put back in order
+
+    winners = ordered_scores.sort(descending=True).indices[:n_winners]
     gene_pool.reproduce(winners)
 
 
@@ -100,7 +110,7 @@ def evaluate(gene_pool: GenePool):
     return steps_to_win
 
 def train():
-    pool = GenePool(POPULATION, device=DEVICE)
+    pool = GenePool(POPULATION, device=DEVICE, hybrid_init=True)
 
     log = 'log.txt'
     best = MAX_GAME_LEN
