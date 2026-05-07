@@ -1,41 +1,41 @@
 import pandas as pd
 import torch
 
-from drone_team import DroneFlock, NUM_CLANS
+from .swarm import DroneSwarm
 
 RANGE = 0.1
 CYLINDER_RADIUS = 0.01
 
 class Env:
-    def __init__(self, num_blue, num_red):
-        self.blue = DroneFlock(
-            num_blue,
-            torch.randint(0, NUM_CLANS, (num_blue,)),
-            offset=torch.tensor([0.25, 0.25, 0])
+    def __init__(self, blue_genes, blue_sexes, red_genes, red_sexes):
+        self.device = blue_genes.device
+
+        self.blue = DroneSwarm(
+            blue_genes, blue_sexes,
+            offset=torch.tensor([0.25, 0.25, 0]).to(self.device),
         )
 
-        self.red = DroneFlock(
-            num_red,
-            torch.randint(0, NUM_CLANS, (num_red,)),
-            offset=torch.tensor([0.75, 0.75, 0])
+        self.red = DroneSwarm(
+            red_genes, red_sexes,
+            offset=torch.tensor([0.75, 0.75, 0]).to(self.device),
         )
 
-        self.n_blue = num_blue
-        self.n_red = num_red
+        self.n_blue = blue_genes.size(0)
+        self.n_red = red_genes.size(0)
 
-        self.b_kills = torch.zeros(self.n_blue)
-        self.b_alive_time = torch.zeros(self.n_blue)
-        self.r_kills = torch.zeros(self.n_red)
-        self.r_alive_time = torch.zeros(self.n_red)
+        self.b_kills = torch.zeros(self.n_blue).to(self.device)
+        self.b_alive_time = torch.zeros(self.n_blue).to(self.device)
+        self.r_kills = torch.zeros(self.n_red).to(self.device)
+        self.r_alive_time = torch.zeros(self.n_red).to(self.device)
 
     def _to_df(self, idx, is_blue):
         kills = self.b_kills if is_blue else self.r_kills
         alive = self.b_alive_time if is_blue else self.r_alive_time
 
         return pd.DataFrame({
-            'kills': kills[idx],
-            'lifespan': alive[idx]
-        }, index=idx.tolist())
+            'kills': kills[idx].cpu(),
+            'lifespan': alive[idx].cpu()
+        }, index=idx.cpu().tolist())
 
     def get_stats(self, top_k=None):
         if top_k is None:
@@ -53,7 +53,7 @@ class Env:
             self._to_df(r_killers, False)
         )
 
-    def update(self):
+    def update(self, viz=False):
         b_killed, r_killed, b_new_kills, r_new_kills = self.attack()
         explosion_pos = torch.cat([self.blue.s[b_killed], self.red.s[r_killed]])
 
@@ -69,7 +69,10 @@ class Env:
         blue_loss, b_collisions = self.blue.update(red_s, b_killed)
         red_loss, r_collisions = self.red.update(blue_s, r_killed)
 
-        return torch.tensor([blue_loss, red_loss]), explosion_pos, b_collisions, r_collisions
+        if viz:
+            return torch.tensor([blue_loss, red_loss]), explosion_pos, b_collisions, r_collisions
+        else:
+            return torch.tensor([blue_loss, red_loss])
 
     def attack(self):
         b_speed = torch.norm(self.blue.v, dim=1, keepdim=True).clamp(min=1e-5)
@@ -85,13 +88,13 @@ class Env:
 
     def _calc_hits(self, attacker_s, defender_s, attacker_heading):
         # Distance from each blue to each red: (N_blue, M_red, 3)
-        D_a2d = defender_s.unsqueeze(0) - attacker_s.unsqueeze(1)
+        d_a2d = defender_s.unsqueeze(0) - attacker_s.unsqueeze(1)
 
         # Project D onto Blue's heading to get Forward Distance
-        forward_a2d = (D_a2d * attacker_heading).sum(dim=-1)
+        forward_a2d = (d_a2d * attacker_heading).sum(dim=-1)
 
         # Subtract the forward projection from D to get the Perpendicular vector
-        perp_vec_a2d = D_a2d - forward_a2d.unsqueeze(-1) * attacker_heading
+        perp_vec_a2d = d_a2d - forward_a2d.unsqueeze(-1) * attacker_heading
         perp_dist_a2d = perp_vec_a2d.norm(dim=-1)
 
         # Valid hit: In front (>0), within range, and inside cylinder radius
@@ -100,9 +103,3 @@ class Env:
         kills_per_attacker = hits.float().sum(dim=1)
 
         return killed, kills_per_attacker
-
-    def coords(self):
-        return (
-            self.blue.s[self.blue.alive],
-            self.red.s[self.red.alive]
-        )

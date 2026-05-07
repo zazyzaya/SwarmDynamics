@@ -1,10 +1,18 @@
 import dearpygui.dearpygui as dpg
 import torch
 
-from sim import Env
+from src.dna import GenePool
+from src.env import Env
 
 SIZE = 1000
-df = Env(100, 100)
+
+blue_gp = GenePool(100)
+blue_gp.reproduce(torch.arange(100))
+
+red_gp = GenePool(100)
+red_gp.reproduce(torch.arange(100))
+
+df = Env(*blue_gp.phenotype(), *red_gp.phenotype())
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # 1. 2D positions and dynamically scaled sizes based on Z-height
@@ -36,8 +44,6 @@ def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
 dpg.create_context()
 dpg.create_viewport(title='PyTorch + Dear PyGui', width=SIZE, height=SIZE)
 dpg.setup_dearpygui()
-
-df = Env(100, 100)
 
 # Define the UI structure ONCE outside the loop
 with dpg.window(label="Pixel Renderer", width=SIZE, height=SIZE):
@@ -100,7 +106,7 @@ while dpg.is_dearpygui_running():
 
     if not game_over.any():
         # Update physics
-        game_over, new_explosions, b_col, r_col = df.update()
+        game_over, new_explosions, b_col, r_col = df.update(viz=True)
         steps += 1
 
         # Add drones shot down

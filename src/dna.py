@@ -1,23 +1,51 @@
-from math import ceil
+from enum import IntEnum
+import pickle
 
 import torch
 
-from drone_team import Params, DEFAULT, NUM_CLANS
+NUM_SEXES = 5
+
+class Genes(IntEnum):
+    ALPHA=0     # Crowding
+    BETA=1      # Alignment
+    GAMMA=2     # Cohesion
+    TURN=3      # Avoid boundaries
+    PROTECTED=4 # How close they can get
+    MARGIN=5    # How low they dare to swoop
+    FEAR=6      # How much they avoid predators
+    DESIRE=7    # How much they desire targets
+    FOLLOW_BIAS_VAL=8   # How much each dron biases clan pull
+    LISTEN_BIAS_VAL=9   # How much to weight recon from others
+    FOLLOW_BIAS=10       # Preference to follow each clan
+    LISTEN_BIAS=10+NUM_SEXES    # Preference to listen to each clan
+
+    LEN = LISTEN_BIAS+NUM_SEXES
+    N_BIASES = 2
+
+# Decent starting params after some fiddling
+DEFAULT = torch.tensor([
+    0.05, 0.05, 0.0005,
+    0.2, 0.1, 0.1,
+    0, 0.25, 0.05, 0.1
+])
 
 class GenePool:
-    def __init__(self, population, xover_rate=0.75, mute_rate=0.01, mute_stren=0.25,
-                 xover_alpha=0.1, xover_beta=0.05, savefile='genes.pt'):
+    def __init__(self, population, xover_rate=0.75, mute_rate=0.01,
+                 mute_stren=0.25, xover_alpha=0.1, xover_beta=0.05,
+                 device='cpu'):
         # Boid params
-        self.genes = DEFAULT.repeat(population, NUM_CLANS, 1)
-        biases = torch.rand(population, NUM_CLANS, NUM_CLANS*Params.N_BIASES)-0.5
-        self.genes = torch.cat([self.genes, biases], dim=-1)
+        self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
+        follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+        listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+
+        self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
 
         # Prob of spawning children of sex `col` given current sex `row`
-        self.meta_genes = torch.rand(population, NUM_CLANS, NUM_CLANS)
-        self.sexes = torch.randint(0, NUM_CLANS, (population,))
+        self.meta_genes = torch.rand(population, NUM_SEXES, NUM_SEXES, device=device)
+        self.sexes = torch.randint(0, NUM_SEXES, (population,), device=device)
 
         self.population = population
-        self.savefile = savefile
+        self.device = device
 
         self.mute_rate = mute_rate
         self.mute_stren = mute_stren
@@ -29,20 +57,38 @@ class GenePool:
     def reproduce(self, winners):
         num_winners = winners.size(0)
 
-        p1 = torch.randint(0, num_winners, (self.population,))
-        p2 = torch.randint(0, num_winners, (self.population,))
+        p1 = torch.randint(0, num_winners, (self.population,), device=self.device)
+        p2 = torch.randint(0, num_winners, (self.population,), device=self.device)
 
         children = self.ab_crossover(
             winners[p1], winners[p2],
             self.sexes[p1], self.sexes[p2]
         )
 
-        coinflip = torch.rand(p1.size(0)) < 0.5
+        coinflip = torch.rand(p1.size(0), device=self.device) < 0.5
         self.sexes = self._select_sex(torch.where(coinflip, winners[p1], winners[p2]))
 
         genes, meta = self.mutate(*children)
         self.genes = genes
         self.meta_genes = meta
+
+    def phenotype(self, organisms=None):
+        if organisms is None:
+            organisms = torch.arange(self.population)
+
+        sexes = self.sexes[organisms]
+        return self.genes[organisms, sexes], sexes
+
+    def save(self, outf):
+        with open(outf, 'wb+') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(fname):
+        with open(fname, 'rb') as f:
+            obj = pickle.load(f)
+
+        return obj
 
     def _select_sex(self, dom_parent):
         parent_sex = self.sexes[dom_parent]
