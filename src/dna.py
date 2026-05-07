@@ -32,13 +32,17 @@ DEFAULT = torch.tensor([
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.01,
                  mute_stren=0.25, xover_alpha=0.1, xover_beta=0.05,
-                 device='cpu'):
+                 device='cpu', use_baseline=False):
         # Boid params
-        self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
-        follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
-        listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+        if use_baseline:
+            self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
+            follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
+            listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
 
-        self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+            self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+
+        else:
+            self.genes = torch.rand(population, NUM_SEXES, Genes.LEN, device=device) - 0.5
 
         # Prob of spawning children of sex `col` given current sex `row`
         self.meta_genes = torch.rand(population, NUM_SEXES, NUM_SEXES, device=device)

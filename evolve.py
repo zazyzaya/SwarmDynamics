@@ -68,7 +68,7 @@ def generation(gene_pool: GenePool):
 
 def evaluate(gene_pool: GenePool):
     st = time()
-    default = GenePool(GAME_SIZE, device=DEVICE)
+    default = GenePool(GAME_SIZE, device=DEVICE, use_baseline=True)
 
     lineup = torch.randperm(gene_pool.population)
     n_games = gene_pool.population // GAME_SIZE
