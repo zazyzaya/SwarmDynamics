@@ -6,13 +6,9 @@ from src.env import Env
 
 SIZE = 1000
 
-blue_gp = GenePool(100)
-blue_gp.reproduce(torch.arange(100))
-
-red_gp = GenePool(100)
-red_gp.reproduce(torch.arange(100))
-
-df = Env(*blue_gp.phenotype(), *red_gp.phenotype())
+gp = GenePool.load('genes/current.pt')
+default = GenePool(100)
+df = Env(*gp.phenotype(torch.randperm(gp.population)[:100]), *default.phenotype())
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # 1. 2D positions and dynamically scaled sizes based on Z-height
