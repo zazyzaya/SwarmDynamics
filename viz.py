@@ -208,12 +208,6 @@ while dpg.is_dearpygui_running():
             first_game_over = False
             b_s, b_k, r_s, r_k = env.get_stats(top_k=10)
 
-            print("Longest Livers:")
-            print("Blue")
-            print(b_s)
-            print("Red")
-            print(r_s)
-            print('\n')
             print("Harshest Killers:")
             print("Blue")
             print(b_k)
