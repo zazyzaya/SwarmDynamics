@@ -32,7 +32,7 @@ def generation(gene_pool: GenePool):
 
         game_over = torch.zeros(2)
 
-        for _ in range(MAX_GAME_LEN):
+        for steps in range(MAX_GAME_LEN):
             game_over = env.update()
             if game_over.any():
                 break
@@ -65,7 +65,7 @@ def generation(gene_pool: GenePool):
             r_score += (env.r_kills.sum() * (WIN_BONUS / 20)).item()
             r_score += ((env.r_alive_time < game_len).float().sum() * (-WIN_BONUS/100)).item()
 
-        return b_score, r_score
+        return b_score, r_score, steps
 
     scores = Parallel(n_games, prefer='processes')(
         delayed(game)(g) for g in range(0, n_games)
@@ -74,7 +74,7 @@ def generation(gene_pool: GenePool):
 
     print(f" ({en-st:0.2f}s)")
 
-    b_scores, r_scores = zip(*scores)
+    b_scores, r_scores, steps = zip(*scores)
     b_scores = torch.tensor(b_scores, dtype=torch.float32)
     r_scores = torch.tensor(r_scores, dtype=torch.float32)
 
@@ -82,8 +82,13 @@ def generation(gene_pool: GenePool):
     ordered_scores[blues] = b_scores
     ordered_scores[reds] = r_scores
 
+    avg_len = sum(steps) / len(steps)
+    print(f'\tSteps: {avg_len}')
+
     winners = ordered_scores.sort(descending=True).indices[:n_winners]
     gene_pool.reproduce(winners)
+
+    return avg_len
 
 
 def evaluate(gene_pool: GenePool):
@@ -127,28 +132,33 @@ def train():
     pool = GenePool(POPULATION, device=DEVICE, hybrid_init=True)
 
     log = 'log.txt'
-    best = MAX_GAME_LEN
+    best = 0
 
-    for e in range(1,100_000):
-        generation(pool)
+    for e in range(100_000):
+        avg_len = generation(pool)
 
-        scores = evaluate(pool)
-        avg = MAX_GAME_LEN - (sum(scores) / len(scores))
-        max_v = MAX_GAME_LEN - min(scores)
+        if e % 10 == 0:
+            scores = evaluate(pool)
 
-        print(f'[{e}] Avg: {int(avg)}, Best: {max_v}', end='')
-        if avg > best:
-            best = avg
-            print('*')
-            pool.save('genes/best.pt')
+            avg = MAX_GAME_LEN - (sum(scores) / len(scores))
+            max_v = MAX_GAME_LEN - min(scores)
+
+            print(f'[{e}] Avg: {int(avg)}, Best: {max_v}', end='')
+            if avg > best:
+                best = avg
+                print('*')
+                pool.save('genes/best.pt')
+            else:
+                print()
+
         else:
-            print()
+            avg = ''; max_v = ''
+
+        with open(log, 'a') as f:
+            f.write(f'{e},{avg},{max_v},{avg_len}\n')
 
         if e % 100 == 0:
             pool.save(f'genes/{e // 100}.pt')
-
-        with open(log, 'a') as f:
-            f.write(f'{e},{avg},{max_v}\n')
 
         pool.save('genes/current.pt')
 
