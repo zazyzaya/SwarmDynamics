@@ -132,7 +132,7 @@ def evaluate(gene_pool: GenePool):
     print(f'({en-st:0.2f}s)')
 
     # Get fitness score
-    scores = torch.zeros_like(steps_to_win)
+    scores = torch.zeros(BATCH_SIZE, device=DEVICE)
     for b in range(BATCH_SIZE):
         b_kills = env.b_kills[b].sum() / GAME_SIZE
         r_kills = env.r_kills[b].sum() / GAME_SIZE
