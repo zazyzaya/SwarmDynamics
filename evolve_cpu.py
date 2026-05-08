@@ -98,19 +98,20 @@ def evaluate(gene_pool: GenePool):
             if game_over.any():
                 break
 
-        # Not loss or draw
-        if game_over[1] and not game_over[0]:
-            return step
-        else:
-            return MAX_GAME_LEN
+        b_kills = env.b_kills.sum() / GAME_SIZE
+        r_kills = env.r_kills.sum() / GAME_SIZE
+        game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
-    steps_to_win = Parallel(n_games, prefer='processes')(
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
+        return b_score
+
+    fitness = Parallel(n_games, prefer='processes')(
         delayed(game)(g) for g in range(n_games)
     )
     en = time()
     print(f'({en-st:0.2f}s)')
 
-    return steps_to_win
+    return fitness
 
 def train():
     pool = GenePool(POPULATION, device=DEVICE, hybrid_init=True)
@@ -124,8 +125,8 @@ def train():
         if e % 10 == 0:
             scores = evaluate(pool)
 
-            avg = (MAX_GAME_LEN - (sum(scores) / len(scores))) / MAX_GAME_LEN
-            max_v = (MAX_GAME_LEN - min(scores)) / MAX_GAME_LEN
+            avg = sum(scores) / len(scores)
+            max_v = max(scores)
 
             print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
             if avg > best:

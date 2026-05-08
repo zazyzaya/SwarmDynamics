@@ -131,7 +131,17 @@ def evaluate(gene_pool: GenePool):
     en = time()
     print(f'({en-st:0.2f}s)')
 
-    return steps_to_win.cpu().tolist()
+    # Get fitness score
+    scores = torch.zeros_like(steps_to_win)
+    for b in range(BATCH_SIZE):
+        b_kills = env.b_kills[b].sum() / GAME_SIZE
+        r_kills = env.r_kills[b].sum() / GAME_SIZE
+        game_len = steps_to_win[b]
+
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
+        scores[b] = b_score
+
+    return scores.cpu().tolist()
 
 
 def train():
@@ -146,8 +156,8 @@ def train():
         if e % 10 == 0:
             scores = evaluate(pool)
 
-            avg = (MAX_GAME_LEN - (sum(scores) / len(scores))) / MAX_GAME_LEN
-            max_v = (MAX_GAME_LEN - min(scores)) / MAX_GAME_LEN
+            avg = sum(scores) / len(scores)
+            max_v = max(scores)
 
             print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
             if avg > best:
