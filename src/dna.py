@@ -31,7 +31,7 @@ DEFAULT = torch.tensor([
 ])
 
 class GenePool:
-    def __init__(self, population, xover_rate=0.75, mute_rate=0.1,
+    def __init__(self, population, xover_rate=0.75, mute_rate=0.05,
                  mute_stren=0.25, xover_alpha=0.1,
                  device='cpu', use_baseline=False, hybrid_init=False):
         # Boid params
