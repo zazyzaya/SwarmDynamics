@@ -129,7 +129,7 @@ def train():
             avg = (MAX_GAME_LEN - (sum(scores) / len(scores))) / MAX_GAME_LEN
             max_v = (MAX_GAME_LEN - min(scores)) / MAX_GAME_LEN
 
-            print(f'\tAvg: {int(avg)}, Best: {max_v}', end='')
+            print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
             if avg > best:
                 best = avg
                 print('*')

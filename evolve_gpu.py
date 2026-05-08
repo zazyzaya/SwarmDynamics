@@ -6,9 +6,8 @@ import torch
 from src.dna import GenePool, MAX_GAME_LEN
 from src.cuda.env import Env
 
-POPULATION = 100
+POPULATION = 1000
 GAME_SIZE = 100
-WIN_BONUS = 1000
 DEVICE = 0
 
 def generation(gene_pool: GenePool, e):
@@ -17,7 +16,7 @@ def generation(gene_pool: GenePool, e):
     blues, reds = torch.randperm(gene_pool.population, device=DEVICE).chunk(2)
 
     BATCH_SIZE = blues.size(0)
-    n_winners = gene_pool.population // 2
+    n_winners = gene_pool.population // 10
 
     b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blues)
     r_genes, r_sexes = gene_pool.create_swarm(GAME_SIZE, reds)
@@ -147,10 +146,10 @@ def train():
         if e % 10 == 0:
             scores = evaluate(pool)
 
-            avg = MAX_GAME_LEN - (sum(scores) / len(scores))
-            max_v = MAX_GAME_LEN - min(scores)
+            avg = (MAX_GAME_LEN - (sum(scores) / len(scores))) / MAX_GAME_LEN
+            max_v = (MAX_GAME_LEN - min(scores)) / MAX_GAME_LEN
 
-            print(f'\tAvg: {int(avg)}, Best: {max_v}', end='')
+            print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
             if avg > best:
                 best = avg
                 print('*')
