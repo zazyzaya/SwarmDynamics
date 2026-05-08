@@ -15,19 +15,19 @@ class Genes(IntEnum):
     MARGIN=5    # How low they dare to swoop
     FEAR=6      # How much they avoid predators
     DESIRE=7    # How much they desire targets
-    FOLLOW_BIAS_VAL=8   # How much each dron biases clan pull
-    LISTEN_BIAS_VAL=9   # How much to weight recon from others
-    FOLLOW_BIAS=10       # Preference to follow each clan
-    LISTEN_BIAS=10+NUM_SEXES    # Preference to listen to each clan
+    CAN_FIRE=8  # Make some drones only scouts
+    FOLLOW_BIAS_VAL=9   # How much each dron biases clan pull
+    LISTEN_BIAS_VAL=10   # How much to weight recon from others
+    FOLLOW_BIAS=11       # Preference to follow each clan
+    LISTEN_BIAS=11+NUM_SEXES    # Preference to listen to each clan
 
     LEN = LISTEN_BIAS+NUM_SEXES
-    N_BIASES = 2
 
 # Decent starting params after some fiddling
 DEFAULT = torch.tensor([
     0.05, 0.05, 0.0005,
     0.2, 0.1, 0.1,
-    0, 0.25, 0.05, 0.1
+    0, 0.25, 0.05, 0.1, 0.5
 ])
 
 class GenePool:

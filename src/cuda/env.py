@@ -1,6 +1,7 @@
 import pandas as pd
 import torch
 
+from src.dna import Genes
 from .swarm import DroneSwarm, RANGE, CYLINDER_RADIUS
 
 class Env:
@@ -84,12 +85,24 @@ class Env:
         r_speed = torch.norm(self.red.v, dim=-1, keepdim=True).clamp(min=1e-5)
         r_heading = (self.red.v / r_speed).unsqueeze(2)
 
-        r_killed, b_new_kills = self._calc_hits(self.blue.s, self.red.s, b_heading, self.blue.alive, self.red.alive)
-        b_killed, r_new_kills = self._calc_hits(self.red.s, self.blue.s, r_heading, self.red.alive, self.blue.alive)
+        # 1. Extract the CAN_FIRE gene mask for both teams -> Shape: (B, N)
+        b_can_fire = self.blue.genes[:, :, Genes.CAN_FIRE] > 0
+        r_can_fire = self.red.genes[:, :, Genes.CAN_FIRE] > 0
+
+        # 2. Pass the fire masks into _calc_hits
+        r_killed, b_new_kills = self._calc_hits(
+            self.blue.s, self.red.s, b_heading,
+            self.blue.alive, self.red.alive, b_can_fire
+        )
+
+        b_killed, r_new_kills = self._calc_hits(
+            self.red.s, self.blue.s, r_heading,
+            self.red.alive, self.blue.alive, r_can_fire
+        )
 
         return b_killed, r_killed, b_new_kills, r_new_kills
 
-    def _calc_hits(self, attacker_s, defender_s, attacker_heading, a_alive, d_alive):
+    def _calc_hits(self, attacker_s, defender_s, attacker_heading, a_alive, d_alive, a_can_fire):
         # (B, 1, M, 3) - (B, N, 1, 3) -> (B, N, M, 3)
         d_a2d = defender_s.unsqueeze(1) - attacker_s.unsqueeze(2)
         forward_a2d = (d_a2d * attacker_heading).sum(dim=-1)
@@ -97,9 +110,11 @@ class Env:
         perp_vec_a2d = d_a2d - forward_a2d.unsqueeze(-1) * attacker_heading
         perp_dist_a2d = perp_vec_a2d.norm(dim=-1)
 
-        # Valid hit: In front, in range, inside cylinder, AND both parties are alive
+        # Valid hit: In front, in range, inside cylinder
         hits = (forward_a2d > 0) & (forward_a2d <= RANGE) & (perp_dist_a2d <= CYLINDER_RADIUS)
-        hits = hits & a_alive.unsqueeze(2) & d_alive.unsqueeze(1)
+
+        # AND both parties are alive, AND the attacker is genetically allowed to shoot
+        hits = hits & a_alive.unsqueeze(2) & d_alive.unsqueeze(1) & a_can_fire.unsqueeze(2)
 
         killed = hits.any(dim=1)
         kills_per_attacker = hits.float().sum(dim=2)

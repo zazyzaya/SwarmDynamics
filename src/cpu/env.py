@@ -1,6 +1,7 @@
 import pandas as pd
 import torch
 
+from src.dna import Genes
 from .swarm import DroneSwarm
 
 RANGE = 0.1
@@ -81,8 +82,38 @@ class Env:
         r_speed = torch.norm(self.red.v, dim=1, keepdim=True).clamp(min=1e-5)
         r_heading = (self.red.v / r_speed).unsqueeze(1)
 
-        r_killed, b_new_kills = self._calc_hits(self.blue.s, self.red.s, b_heading)
-        b_killed, r_new_kills = self._calc_hits(self.red.s, self.blue.s, r_heading)
+        # 1. Identify which drones are genetically allowed to fire
+        b_can_fire = self.blue.genes[:, Genes.CAN_FIRE] > 0
+        r_can_fire = self.red.genes[:, Genes.CAN_FIRE] > 0
+
+        # 2. Initialize tracking tensors for the whole swarm
+        b_new_kills = torch.zeros(self.blue.n, device=self.blue.s.device)
+        r_new_kills = torch.zeros(self.red.n, device=self.red.s.device)
+
+        r_killed = torch.zeros(self.red.n, dtype=torch.bool, device=self.red.s.device)
+        b_killed = torch.zeros(self.blue.n, dtype=torch.bool, device=self.blue.s.device)
+
+        # 3. Calculate Blue attacks (only if at least one Blue can fire)
+        if b_can_fire.any():
+            r_hit_mask, b_firing_kills = self._calc_hits(
+                self.blue.s[b_can_fire],
+                self.red.s,
+                b_heading[b_can_fire]
+            )
+            r_killed = r_killed | r_hit_mask
+            # Map the kills back to the specific Blues that fired
+            b_new_kills[b_can_fire] = b_firing_kills
+
+        # 4. Calculate Red attacks (only if at least one Red can fire)
+        if r_can_fire.any():
+            b_hit_mask, r_firing_kills = self._calc_hits(
+                self.red.s[r_can_fire],
+                self.blue.s,
+                r_heading[r_can_fire]
+            )
+            b_killed = b_killed | b_hit_mask
+            # Map the kills back to the specific Reds that fired
+            r_new_kills[r_can_fire] = r_firing_kills
 
         return b_killed, r_killed, b_new_kills, r_new_kills
 
