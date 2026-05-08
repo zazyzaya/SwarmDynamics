@@ -68,6 +68,10 @@ class GenePool:
     def reproduce(self, winners):
         num_winners = winners.size(0)
 
+        # Assume winners are already sorted, and rescue top 5%
+        n_elite = winners.size(0)//20
+        elite = winners[:n_elite]
+
         p1 = torch.randint(0, num_winners, (self.population,), device=self.device)
         p2 = torch.randint(0, num_winners, (self.population,), device=self.device)
 
@@ -76,6 +80,9 @@ class GenePool:
         )
 
         genes, meta = self.mutate(*children)
+        genes[:n_elite] = self.genes[elite]
+        meta[:n_elite] = self.meta_genes[elite]
+
         self.genes = genes
         self.meta_genes = meta
 

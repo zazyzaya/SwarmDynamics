@@ -49,6 +49,10 @@ def generation(gene_pool: GenePool):
             speed_bonus *= (WIN_BONUS / 2)
             b_score += WIN_BONUS + speed_bonus
 
+            # Individual rewards
+            b_score += (env.b_kills.sum() * (WIN_BONUS / 20)).item()
+            b_score += ((env.b_alive_time < game_len).float().sum() * (-WIN_BONUS/100)).item()
+
 
         elif not draw and game_over[0]:
             # Team bonuses for winning quickly
@@ -56,6 +60,10 @@ def generation(gene_pool: GenePool):
             speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
             speed_bonus *= (WIN_BONUS / 2)
             r_score += WIN_BONUS + speed_bonus
+
+            # Individual rewards
+            r_score += (env.r_kills.sum() * (WIN_BONUS / 20)).item()
+            r_score += ((env.r_alive_time < game_len).float().sum() * (-WIN_BONUS/100)).item()
 
         return b_score, r_score
 
