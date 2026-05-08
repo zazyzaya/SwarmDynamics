@@ -57,23 +57,22 @@ def generation(gene_pool: GenePool):
         red_queen = reds[b]
         game_len = game_lengths[b]
 
+        # Award kills regardless of who wins so in situations where there's a tie
+        # especially ones where there's a tie because one team asymmetrically killed
+        # most of the others drones, but a few escaped and hid until time ran out,
+        # the more dangerous queen gets points
+        scores[blue_queen] += env.b_kills[b].sum() * (WIN_BONUS / 20)
+        scores[red_queen] += env.r_kills[b].sum() * (WIN_BONUS / 20)
+
         if not draw and game_over[1]: # Blue wins
             speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
             speed_bonus *= (WIN_BONUS / 2)
-
-            # Sum up the performance of the 100 drones and assign it to the Queen
             scores[blue_queen] += WIN_BONUS + speed_bonus
-            scores[blue_queen] += env.b_kills[b].sum() * (WIN_BONUS / 20)
-            scores[blue_queen] += (env.b_alive_time[b] < game_len).float().sum() * (-WIN_BONUS/100)
 
         elif not draw and game_over[0]: # Red wins
             speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
             speed_bonus *= (WIN_BONUS / 2)
-
-            # Sum up the performance of the 100 drones and assign it to the Queen
             scores[red_queen] += WIN_BONUS + speed_bonus
-            scores[red_queen] += env.r_kills[b].sum() * (WIN_BONUS / 20)
-            scores[red_queen] += (env.r_alive_time[b] < game_len).float().sum() * (-WIN_BONUS/100)
 
     en = time()
     print(f" ({en-st:0.2f}s)")
