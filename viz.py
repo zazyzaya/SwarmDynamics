@@ -1,14 +1,31 @@
+from argparse import ArgumentParser
+
 import dearpygui.dearpygui as dpg
 import torch
 
-from src.dna import GenePool
+from src.dna import GenePool, MAX_GAME_LEN
 from src.cpu.env import Env
 
 SIZE = 1000
 
+ap = ArgumentParser()
+ap.add_argument('--self-play', action='store_true')
+args = ap.parse_args()
+
 gp = GenePool.load('genes/current.pt', device='cpu')
-default = GenePool(100)
-df = Env(*gp.phenotype(torch.randperm(gp.population)[:100]), *default.phenotype())
+default = GenePool(100, use_baseline=True)
+
+if args.self_play:
+    bg, bs = gp.create_swarm(100, torch.randint(0,gp.population, (1,)))
+    rg, rs = gp.create_swarm(100, torch.randint(0,gp.population, (1,)))
+else:
+    bg, bs = gp.create_swarm(100, torch.randint(0,gp.population, (1,)))
+    rg, rs = default.create_swarm(100, torch.tensor([0]))
+
+env = Env(
+    bg.squeeze(0), bs.squeeze(0),
+    rg.squeeze(0), rs.squeeze(0)
+)
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # 1. 2D positions and dynamically scaled sizes based on Z-height
@@ -58,8 +75,8 @@ while dpg.is_dearpygui_running():
     dpg.delete_item("main_drawlist", children_only=True)
 
     # Draw the boids
-    blue_tris = get_triangles(df.blue)
-    red_tris = get_triangles(df.red)
+    blue_tris = get_triangles(env.blue)
+    red_tris = get_triangles(env.red)
 
     # Draw Blue Team
     for p1, p2, p3 in blue_tris:
@@ -98,11 +115,22 @@ while dpg.is_dearpygui_running():
         else:
             exp['radius'] -= 1.5  # Shrink speed
             if exp['radius'] <= 0.0:
-                active_explosions.remove(exp) # Animation finished, remove it!
+                active_explosions.remove(exp) # Animation finished
+
+    # Track what step we're at
+    dpg.draw_text(
+            pos=(10, 10),
+            text=f"Step: {steps:04d}", size=20,
+            color=(255, 255, 255, 255),
+            parent='main_drawlist'
+        )
+
+    if steps >= MAX_GAME_LEN:
+        game_over = torch.tensor([1,1])
 
     if not game_over.any():
         # Update physics
-        game_over, new_explosions, b_col, r_col = df.update(viz=True)
+        game_over, new_explosions, b_col, r_col = env.update(viz=True)
         steps += 1
 
         # Add drones shot down
@@ -154,13 +182,6 @@ while dpg.is_dearpygui_running():
             parent='main_drawlist'
         )
 
-        dpg.draw_text(
-            pos=(center_x, center_y + 40),
-            text=f"   {steps} Steps", size=20,
-            color=(255, 255, 255, 255),
-            parent='main_drawlist'
-        )
-
         if game_over[0] and not game_over[1]:
             dpg.draw_text(
                 pos=(center_x, center_y),
@@ -178,14 +199,14 @@ while dpg.is_dearpygui_running():
         else:
             dpg.draw_text(
                 pos=(center_x, center_y),
-                text="    Draw!",
+                text="   Draw!",
                 size=30, color=(0, 255, 0, 255),
                 parent='main_drawlist'
             )
 
         if first_game_over:
             first_game_over = False
-            b_s, b_k, r_s, r_k = df.get_stats(top_k=10)
+            b_s, b_k, r_s, r_k = env.get_stats(top_k=10)
 
             print("Longest Livers:")
             print("Blue")

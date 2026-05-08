@@ -5,22 +5,20 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 import torch
 
-from src.dna import GenePool
+from src.dna import GenePool, MAX_GAME_LEN
 from src.cpu.env import Env
 
-MAX_GAME_LEN = 5000
 POPULATION = 100
 GAME_SIZE = 100
 WIN_BONUS = 1000
 DEVICE = 'cpu' # Why is this faster than my GPU??
 
-def generation(gene_pool: GenePool):
+def generation(gene_pool: GenePool, e):
     st = time()
     blues,reds = torch.randperm(gene_pool.population).chunk(2)
     n_games = blues.size(0)
     n_winners = gene_pool.population // 2
 
-    print("\tSimulating... ", end='', flush=True)
     def game(g):
         b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blues[g:g+1])
         r_genes, r_sexes = gene_pool.create_swarm(GAME_SIZE, reds[g:g+1])
@@ -37,26 +35,11 @@ def generation(gene_pool: GenePool):
             if game_over.any():
                 break
 
-        draw = game_over.sum() == 0 or game_over.sum() == 2
+        b_kills = env.b_kills.sum() / GAME_SIZE
+        r_kills = env.r_kills.sum() / GAME_SIZE
+        game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
-        game_len = MAX_GAME_LEN
-        b_score = env.b_kills.sum() * (WIN_BONUS / 20)
-        r_score = env.r_kills.sum() * (WIN_BONUS / 20)
-
-        if not draw and game_over[1]:
-            # Team bonuses for winning quickly
-            game_len = env.b_alive_time.max()
-            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
-            speed_bonus *= (WIN_BONUS / 2)
-            b_score += WIN_BONUS + speed_bonus
-
-        elif not draw and game_over[0]:
-            # Team bonuses for winning quickly
-            game_len = env.r_alive_time.max()
-            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
-            speed_bonus *= (WIN_BONUS / 2)
-            r_score += WIN_BONUS + speed_bonus
-
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
         return b_score, r_score, steps
 
     scores = Parallel(n_games, prefer='processes')(
@@ -75,12 +58,23 @@ def generation(gene_pool: GenePool):
     ordered_scores[reds] = r_scores
 
     avg_len = sum(steps) / len(steps)
-    print(f'\tSteps: {avg_len}')
+    avg_fitness = ordered_scores.mean().item()
+    avg_fitness_std = ordered_scores.std().item()
 
-    winners = ordered_scores.sort(descending=True).indices[:n_winners]
-    gene_pool.reproduce(winners)
+    winners = ordered_scores.topk(n_winners)
+    top_fitness = winners.values.mean().item()
+    top_fitness_std = winners.values.std().item()
+    print(
+        f"[{e}] Steps: {int(avg_len)},",
+        f"Avg fitness: {avg_fitness:0.4f}+/-{avg_fitness_std:0.2f},",
+        f"Top fitness: {top_fitness:0.4f}+/-{top_fitness_std:0.2f}",
+        f"({en-st:0.2f}s)"
+    )
 
-    return avg_len
+
+    gene_pool.reproduce(winners.indices)
+
+    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
 
 
 def evaluate(gene_pool: GenePool):
@@ -127,15 +121,15 @@ def train():
     best = 0
 
     for e in range(100_000):
-        avg_len = generation(pool)
+        stats = generation(pool, e)
 
         if e % 10 == 0:
             scores = evaluate(pool)
 
-            avg = MAX_GAME_LEN - (sum(scores) / len(scores))
-            max_v = MAX_GAME_LEN - min(scores)
+            avg = (MAX_GAME_LEN - (sum(scores) / len(scores))) / MAX_GAME_LEN
+            max_v = (MAX_GAME_LEN - min(scores)) / MAX_GAME_LEN
 
-            print(f'[{e}] Avg: {int(avg)}, Best: {max_v}', end='')
+            print(f'\tAvg: {int(avg)}, Best: {max_v}', end='')
             if avg > best:
                 best = avg
                 print('*')
@@ -147,7 +141,7 @@ def train():
             avg = ''; max_v = ''
 
         with open(log, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{avg_len}\n')
+            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])}\n')
 
         if e % 100 == 0:
             pool.save(f'genes/{e // 100}.pt')
@@ -156,5 +150,5 @@ def train():
 
 if __name__ == '__main__':
     with open('log.txt', 'w+') as f:
-        f.write('generation,avg,best\n')
+        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len\n')
     train()

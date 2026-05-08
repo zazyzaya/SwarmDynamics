@@ -4,6 +4,7 @@ import pickle
 import torch
 
 NUM_SEXES = 5
+MAX_GAME_LEN = 2000
 
 class Genes(IntEnum):
     ALPHA=0     # Crowding
@@ -118,6 +119,7 @@ class GenePool:
         if device:
             obj.genes = obj.genes.to(device)
             obj.meta_genes = obj.meta_genes.to(device)
+            obj.device = device
 
         return obj
 
@@ -180,3 +182,23 @@ class GenePool:
         children = torch.where(coin_flip, child1, child2)
 
         return children
+
+    @staticmethod
+    def fitness(bkills, rkills, game_len):
+        '''
+        Takes normalized count of kills (min 0, max 1)
+        and normalized game len (min 0, max 1) and calculates
+        the fitness of the queen that produced the swarm by
+
+            kills + (1-game_len) * 1(if team won)
+
+        '''
+        bscore = bkills
+        rscore = rkills
+
+        if bkills == 1:
+            bscore += (1-game_len)
+        elif rkills == 1:
+            rscore += (1-game_len)
+
+        return bscore, rscore

@@ -3,24 +3,21 @@ from time import time
 
 import torch
 
-from src.dna import GenePool
+from src.dna import GenePool, MAX_GAME_LEN
 from src.cuda.env import Env
 
-MAX_GAME_LEN = 5000
 POPULATION = 100
 GAME_SIZE = 100
 WIN_BONUS = 1000
 DEVICE = 0
 
-def generation(gene_pool: GenePool):
+def generation(gene_pool: GenePool, e):
     st = time()
 
     blues, reds = torch.randperm(gene_pool.population, device=DEVICE).chunk(2)
 
     BATCH_SIZE = blues.size(0)
     n_winners = gene_pool.population // 2
-
-    print("\tSimulating... ", end='', flush=True)
 
     b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blues)
     r_genes, r_sexes = gene_pool.create_swarm(GAME_SIZE, reds)
@@ -61,29 +58,32 @@ def generation(gene_pool: GenePool):
         # especially ones where there's a tie because one team asymmetrically killed
         # most of the others drones, but a few escaped and hid until time ran out,
         # the more dangerous queen gets points
-        scores[blue_queen] += env.b_kills[b].sum() * (WIN_BONUS / 20)
-        scores[red_queen] += env.r_kills[b].sum() * (WIN_BONUS / 20)
+        b_kills = env.b_kills[b].sum() / GAME_SIZE
+        r_kills = env.r_kills[b].sum() / GAME_SIZE
 
-        if not draw and game_over[1]: # Blue wins
-            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
-            speed_bonus *= (WIN_BONUS / 2)
-            scores[blue_queen] += WIN_BONUS + speed_bonus
-
-        elif not draw and game_over[0]: # Red wins
-            speed_bonus = (MAX_GAME_LEN - game_len) / MAX_GAME_LEN
-            speed_bonus *= (WIN_BONUS / 2)
-            scores[red_queen] += WIN_BONUS + speed_bonus
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
+        scores[blue_queen] = b_score
+        scores[red_queen] = r_score
 
     en = time()
-    print(f" ({en-st:0.2f}s)")
 
     avg_len = game_lengths.mean().item()
-    print(f'\tSteps: {avg_len}')
+    avg_fitness = scores.mean().item()
+    avg_fitness_std = scores.std().item()
 
-    winners = scores.sort(descending=True).indices[:n_winners]
-    gene_pool.reproduce(winners)
+    winners = scores.topk(n_winners)
+    top_fitness = winners.values.mean().item()
+    top_fitness_std = winners.values.std().item()
+    print(
+        f"[{e}] Steps: {int(avg_len)},",
+        f"Avg fitness: {avg_fitness:0.4f}+/-{avg_fitness_std:0.2f},",
+        f"Top fitness: {top_fitness:0.4f}+/-{top_fitness_std:0.2f}",
+        f"({en-st:0.2f}s)"
+    )
 
-    return avg_len
+
+    gene_pool.reproduce(winners.indices)
+    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
 
 
 def evaluate(gene_pool: GenePool):
@@ -142,7 +142,7 @@ def train():
     best = 0
 
     for e in range(100_000):
-        avg_len = generation(pool)
+        stats = generation(pool, e)
 
         if e % 10 == 0:
             scores = evaluate(pool)
@@ -150,7 +150,7 @@ def train():
             avg = MAX_GAME_LEN - (sum(scores) / len(scores))
             max_v = MAX_GAME_LEN - min(scores)
 
-            print(f'[{e}] Avg: {int(avg)}, Best: {max_v}', end='')
+            print(f'\tAvg: {int(avg)}, Best: {max_v}', end='')
             if avg > best:
                 best = avg
                 print('*')
@@ -162,7 +162,7 @@ def train():
             avg = ''; max_v = ''
 
         with open(log, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{avg_len}\n')
+            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])}\n')
 
         if e % 100 == 0:
             pool.save(f'genes/{e // 100}.pt')
@@ -171,5 +171,5 @@ def train():
 
 if __name__ == '__main__':
     with open('log.txt', 'w+') as f:
-        f.write('generation,avg,best\n')
+        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len\n')
     train()
