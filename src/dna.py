@@ -83,14 +83,20 @@ class GenePool:
         sexes = self.sexes[organisms]
         return self.genes[organisms, sexes], sexes
 
+
     def save(self, outf):
         with open(outf, 'wb+') as f:
             pickle.dump(self, f)
 
     @staticmethod
-    def load(fname):
+    def load(fname, device=None):
         with open(fname, 'rb') as f:
-            obj = pickle.load(f)
+            obj: GenePool = pickle.load(f)
+
+        if device:
+            obj.genes = obj.genes.to(device)
+            obj.meta_genes = obj.meta_genes.to(device)
+            obj.sexes = obj.sexes.to(device)
 
         return obj
 
@@ -100,11 +106,12 @@ class GenePool:
 
         # Pull out the pdfs
         n = prob.size(0)
+
+        # Not a huge fan of these variable names...
         child_sex_logits = prob[torch.arange(n), parent_sex]
         child_sex_probs = torch.softmax(child_sex_logits, dim=1)
-
-        # Sample
         child_sex = torch.multinomial(child_sex_probs, 1)
+
         return child_sex.flatten()
 
     def mutate(self, genes, meta):

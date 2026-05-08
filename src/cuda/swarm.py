@@ -1,6 +1,6 @@
 import torch
 
-from .dna import NUM_SEXES, Genes
+from src.dna import NUM_SEXES, Genes
 
 DELTA_T = 0.002
 

@@ -6,7 +6,7 @@ from tqdm import tqdm
 import torch
 
 from src.dna import GenePool
-from src.env import Env
+from src.cuda.env import Env
 
 MAX_GAME_LEN = 5000
 POPULATION = 10_000
