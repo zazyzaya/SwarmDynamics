@@ -31,8 +31,8 @@ DEFAULT = torch.tensor([
 
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.01,
-                 mute_stren=0.25, xover_alpha=0.1, xover_beta=0.05,
-                 device='cpu', use_baseline=False):
+                 mute_stren=0.25, xover_alpha=0.1,
+                 device='cpu', use_baseline=False, hybrid_init=False):
         # Boid params
         if use_baseline:
             self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
@@ -41,22 +41,29 @@ class GenePool:
 
             self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
 
+        # Use boid flying params with randomized combat params
+        elif hybrid_init:
+            self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
+            self.genes[..., Genes.FEAR:] = torch.rand(population, NUM_SEXES, Genes.FOLLOW_BIAS-Genes.FEAR, device=device) - 0.5
+            follow_bias = 0.1 * torch.rand(population, NUM_SEXES, NUM_SEXES, device=device) - 0.05
+            listen_bias = 0.1 * torch.rand(population, NUM_SEXES, NUM_SEXES, device=device) - 0.05
+
+            self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+
         else:
             self.genes = torch.rand(population, NUM_SEXES, Genes.LEN, device=device) - 0.5
 
-        # Prob of spawning children of sex `col` given current sex `row`
-        self.meta_genes = torch.rand(population, NUM_SEXES, NUM_SEXES, device=device)
-        self.sexes = torch.randint(0, NUM_SEXES, (population,), device=device)
+        # Prob of generating children of each sex
+        self.meta_genes = torch.rand(population, NUM_SEXES, device=device)
 
         self.population = population
         self.device = device
 
+        # Evolution params
         self.mute_rate = mute_rate
         self.mute_stren = mute_stren
-
         self.xover_rate = xover_rate
         self.xover_alpha = xover_alpha
-        self.xover_beta = xover_beta
 
     def reproduce(self, winners):
         num_winners = winners.size(0)
@@ -65,24 +72,32 @@ class GenePool:
         p2 = torch.randint(0, num_winners, (self.population,), device=self.device)
 
         children = self.ab_crossover(
-            winners[p1], winners[p2],
-            self.sexes[p1], self.sexes[p2]
+            winners[p1], winners[p2]
         )
-
-        coinflip = torch.rand(p1.size(0), device=self.device) < 0.5
-        self.sexes = self._select_sex(torch.where(coinflip, winners[p1], winners[p2]))
 
         genes, meta = self.mutate(*children)
         self.genes = genes
         self.meta_genes = meta
 
-    def phenotype(self, organisms=None):
-        if organisms is None:
-            organisms = torch.arange(self.population)
+    def create_swarm(self, swarm_size, queens=None):
+        if queens is None:
+            queens = torch.arange(self.population, device=self.device)
 
-        sexes = self.sexes[organisms]
-        return self.genes[organisms, sexes], sexes
+        b = queens.size(0)
 
+        child_sex_logits = self.meta_genes[queens] # Shape: (B, NUM_SEXES)
+        child_sex_probs = torch.softmax(child_sex_logits, dim=-1)
+        childrens_sexes = torch.multinomial(child_sex_probs, swarm_size, replacement=True) # Shape: (B, swarm_size)
+
+        # Retrieve the Queen's full genome -> Shape: (B, NUM_SEXES, G)
+        queen_genes = self.genes[queens]
+
+        b_idx = torch.arange(b, device=self.device).unsqueeze(1)
+
+        # PyTorch acts as a zipper: For batch `b` and child `n`, grab queen_genes[b, childrens_sexes[b, n], :]
+        swarm_genes = queen_genes[b_idx, childrens_sexes] # Resulting Shape: (B, swarm_size, G)
+
+        return swarm_genes, childrens_sexes
 
     def save(self, outf):
         with open(outf, 'wb+') as f:
@@ -96,23 +111,9 @@ class GenePool:
         if device:
             obj.genes = obj.genes.to(device)
             obj.meta_genes = obj.meta_genes.to(device)
-            obj.sexes = obj.sexes.to(device)
 
         return obj
 
-    def _select_sex(self, dom_parent):
-        parent_sex = self.sexes[dom_parent]
-        prob = self.meta_genes[dom_parent]
-
-        # Pull out the pdfs
-        n = prob.size(0)
-
-        # Not a huge fan of these variable names...
-        child_sex_logits = prob[torch.arange(n), parent_sex]
-        child_sex_probs = torch.softmax(child_sex_logits, dim=1)
-        child_sex = torch.multinomial(child_sex_probs, 1)
-
-        return child_sex.flatten()
 
     def mutate(self, genes, meta):
         # Generate random noise between [-mute_stren, mute_stren]
@@ -129,48 +130,31 @@ class GenePool:
 
         return genes, meta
 
-    def ab_crossover(self, grp1, grp2, sex1, sex2):
+    def ab_crossover(self, grp1, grp2):
         new_genes = self._ab_crossover(
-            self.genes[grp1], self.genes[grp2],
-            sex1, sex2
+            self.genes[grp1], self.genes[grp2]
         )
 
         new_meta_genes = self._ab_crossover(
-            self.meta_genes[grp1], self.meta_genes[grp2],
-            sex1, sex2
+            self.meta_genes[grp1], self.meta_genes[grp2]
         )
 
         return new_genes, new_meta_genes
 
-    def _ab_crossover(self, p1, p2, sex1, sex2):
+    def _ab_crossover(self, p1, p2):
         '''
         Given two groups, perform BLX-\alpha\beta where genes
         related to the parents' sex are weighted with the alpha parameter
         genes related to neither parent's sex are weighted with the beta parameter
         '''
-        # Bias traits related to parents' sex
-        n = p1.size(0)
-
-        coef_1 = torch.full_like(p1, self.xover_beta)
-        coef_1[torch.arange(n), sex1, :] = self.xover_alpha
-        coef_2 = torch.full_like(p2, self.xover_beta)
-        coef_2[torch.arange(n), sex2, :] = self.xover_alpha
-
         # Find min and max boundaries
         g_min = torch.minimum(p1, p2)
         g_max = torch.maximum(p1, p2)
         delta = g_max - g_min
 
-        # Apply the correct coefficient based on which parent was the minimum
-        p1_is_min = p1 <= p2
-
-        # If p1 is the lower bound, it expands using coef_1. Else, it expands using coef_2.
-        coef_min = torch.where(p1_is_min, coef_1, coef_2)
-        coef_max = torch.where(p1_is_min, coef_2, coef_1)
-
         # Calculate absolute bounds for the new gene
-        lower_bound = g_min - (coef_min * delta)
-        upper_bound = g_max + (coef_max * delta)
+        lower_bound = g_min - (self.xover_alpha * delta)
+        upper_bound = g_max + (self.xover_alpha * delta)
 
         # Generate two potential children from the distribution
         u1 = torch.rand_like(lower_bound)
@@ -183,8 +167,9 @@ class GenePool:
         child1 = torch.where(to_cross, child1_genes, p1)
         child2 = torch.where(to_cross, child2_genes, p2)
 
-        # Randomly select between the two offspring configurations
-        coin_flip = torch.rand(child1.size(0), 1, 1, device=self.device) < 0.5
+        # Randomly select between the two offspring configurations (could be 2 or 3 dims)
+        flip_shape = [child1.shape[0]] + [1] * (child1.dim() - 1)
+        coin_flip = torch.rand(flip_shape, device=self.device) < 0.5
         children = torch.where(coin_flip, child1, child2)
 
         return children
