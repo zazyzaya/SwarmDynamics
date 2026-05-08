@@ -47,8 +47,6 @@ def generation(gene_pool: GenePool, e):
     )
     en = time()
 
-    print(f" ({en-st:0.2f}s)")
-
     b_scores, r_scores, steps = zip(*scores)
     b_scores = torch.tensor(b_scores, dtype=torch.float32)
     r_scores = torch.tensor(r_scores, dtype=torch.float32)
@@ -66,8 +64,8 @@ def generation(gene_pool: GenePool, e):
     top_fitness_std = winners.values.std().item()
     print(
         f"[{e}] Steps: {int(avg_len)},",
-        f"Avg fitness: {avg_fitness:0.4f}+/-{avg_fitness_std:0.2f},",
-        f"Top fitness: {top_fitness:0.4f}+/-{top_fitness_std:0.2f}",
+        f"Avg fitness: {avg_fitness:0.4f} (+/-) {avg_fitness_std:0.2f},",
+        f"Top fitness: {top_fitness:0.4f} (+/-) {top_fitness_std:0.2f}",
         f"({en-st:0.2f}s)"
     )
 
