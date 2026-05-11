@@ -1,6 +1,6 @@
 .vscode/
 __pycache__/
-genes/
+genes/*
 log.txt
 !genes/defaults.pt
 !genes/large_pop.pt
