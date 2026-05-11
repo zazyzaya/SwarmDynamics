@@ -1,31 +1,40 @@
 Genetic algo for swarm dynamics
 Each drone emits weak signal (how weak = gene) that decays according to inv sq law
-Use this signal to determine distance and role of drone 
-Drones may change role according to some prob function 
+Use this signal to determine distance and role of drone
+Drones may change role according to some prob function
 Drones have additional signal for which "clan" they're with if they want to make sub-swarms
 
-Each drone knows: 
+Each drone knows:
 	last transmitted location of target
 	strength/type of signal of nearest neighbors (assume a 3d vector)
-	its own role 
+	its own role
 	its own velocity vector
-	its current clan 
+	its current clan
 	distance above ground
 	relative location to stable point
 
 Objectives:
-	don't collide with neighbors 
+	don't collide with neighbors
 	don't collide with ground
-	destroy (possibly moving) target(s) 
-	do so as quickly as possible 
+	destroy (possibly moving) target(s)
+	do so as quickly as possible
 
-Actions: 
-	Fire weapon (optional; limited capacity) 
+Actions:
+	Fire weapon (optional; limited capacity)
 	Change role (optional)
-	Accelerate in direction (optional) 
-	Message pass (passive) 
-		current location 
-		current role 
-		location of target (if visible) 
-		velocity vector 
-		
+	Accelerate in direction (optional)
+	Message pass (passive)
+		current location
+		current role
+		location of target (if visible)
+		velocity vector
+
+Notes:
+- 	After several generations, the swarm seems to be good at killing other evolved swarms
+	but has difficulty fighting the baseline, non-aggressive one.
+	Maybe add in a round of fighting off the baseline swarm to keep the ability
+	to kill passive drones in the genepool?
+- 	Drones spin around rapidly when they're in a cloud of enemies. Possibly to
+	improve their odds of hitting one? Unclear why. Need to add in a rotational
+	velocity speed limit as well. IRL they would tear themselves apart form the
+	g-forces

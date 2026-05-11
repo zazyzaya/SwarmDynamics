@@ -12,7 +12,7 @@ ap = ArgumentParser()
 ap.add_argument('--self-play', action='store_true')
 args = ap.parse_args()
 
-gp = GenePool.load('genes/current.pt', device='cpu')
+gp = GenePool.load('genes/current_hybrid.pt', device='cpu')
 default = GenePool(100, use_baseline=True)
 
 if args.self_play:
@@ -199,7 +199,7 @@ while dpg.is_dearpygui_running():
         else:
             dpg.draw_text(
                 pos=(center_x, center_y),
-                text="   Draw!",
+                text="    Draw!",
                 size=30, color=(0, 255, 0, 255),
                 parent='main_drawlist'
             )

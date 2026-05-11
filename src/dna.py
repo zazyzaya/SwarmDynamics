@@ -33,7 +33,7 @@ DEFAULT = torch.tensor([
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.05,
                  mute_stren=0.25, xover_alpha=0.1,
-                 device='cpu', use_baseline=False, hybrid_init=False):
+                 device='cpu', use_baseline=False, hybrid_init=True):
         # Boid params
         if use_baseline:
             self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
@@ -114,7 +114,7 @@ class GenePool:
     @staticmethod
     def load(fname, device=None):
         with open(fname, 'rb') as f:
-            obj: GenePool = pickle.load(f)
+            obj: GenePool = CPU_Unpickler(f).load()
 
         if device:
             obj.genes = obj.genes.to(device)
@@ -202,3 +202,16 @@ class GenePool:
             rscore += (1-game_len)
 
         return bscore, rscore
+
+
+import io
+class CPU_Unpickler(pickle.Unpickler):
+    '''
+    Because pickle.dump with GPU 3 doesn't want to work on my
+    local 1 GPU machine
+    '''
+    def find_class(self, module, name):
+        if module == 'torch.storage' and name == '_load_from_bytes':
+            return lambda b: torch.load(io.BytesIO(b), map_location='cpu')
+        else:
+            return super().find_class(module, name)
