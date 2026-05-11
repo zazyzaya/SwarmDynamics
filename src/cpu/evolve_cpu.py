@@ -43,6 +43,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
         delayed(game)(g) for g in range(0, n_games)
     )
     en = time()
+    elapsed = en-st
 
     b_scores, r_scores, steps = zip(*scores)
     b_scores = torch.tensor(b_scores, dtype=torch.float32)
@@ -63,13 +64,13 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
         f"[{e}] Steps: {int(avg_len)},",
         f"Avg fitness: {avg_fitness:0.4f} (+/-) {avg_fitness_std:0.2f},",
         f"Top fitness: {top_fitness:0.4f} (+/-) {top_fitness_std:0.2f}",
-        f"({en-st:0.2f}s)"
+        f"({elapsed:0.2f}s)"
     )
 
 
     gene_pool.reproduce(winners.indices)
 
-    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
+    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
 
 
 def evaluate(gene_pool: GenePool, game_size):
@@ -108,7 +109,8 @@ def evaluate(gene_pool: GenePool, game_size):
         delayed(game)(g) for g in range(n_games)
     )
     en = time()
-    print(f'({en-st:0.2f}s)')
+    elapsed = en-st
+    print(f'({elapsed:0.2f}s)')
 
-    return fitness
+    return fitness, elapsed
 

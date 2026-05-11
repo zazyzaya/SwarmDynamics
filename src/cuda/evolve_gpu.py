@@ -63,6 +63,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
         scores[red_queen] = r_score
 
     en = time()
+    elapsed = en-st
 
     avg_len = game_lengths.mean().item()
     avg_fitness = scores.mean().item()
@@ -75,11 +76,11 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
         f"[{e}] Steps: {int(avg_len)},",
         f"Avg fitness: {avg_fitness:0.4f}+/-{avg_fitness_std:0.2f},",
         f"Top fitness: {top_fitness:0.4f}+/-{top_fitness_std:0.2f}",
-        f"({en-st:0.2f}s)"
+        f"({elapsed:0.2f}s)"
     )
 
     gene_pool.reproduce(winners.indices)
-    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
+    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
 
 
 def evaluate(gene_pool: GenePool, game_size):
@@ -128,7 +129,8 @@ def evaluate(gene_pool: GenePool, game_size):
             break
 
     en = time()
-    print(f'({en-st:0.2f}s)')
+    elapsed = en-st
+    print(f'({elapsed:0.2f}s)')
 
     # Get fitness score
     scores = torch.zeros(BATCH_SIZE, device=DEVICE)
@@ -140,4 +142,4 @@ def evaluate(gene_pool: GenePool, game_size):
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
         scores[b] = b_score
 
-    return scores.cpu().tolist()
+    return scores.cpu().tolist(), elapsed

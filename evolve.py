@@ -29,7 +29,7 @@ def train(hyperparams):
         )
 
         if e % hyperparams.eval_rate == 0:
-            scores = evaluate(pool, hyperparams.game_size)
+            scores, eval_t = evaluate(pool, hyperparams.game_size)
 
             avg = sum(scores) / len(scores)
             max_v = max(scores)
@@ -43,10 +43,10 @@ def train(hyperparams):
                 print()
 
         else:
-            avg = ''; max_v = ''
+            avg = ''; max_v = ''; eval_t=0
 
         with open(LOG_FILE, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])}\n')
+            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])},{eval_t}\n')
 
         if e % hyperparams.save_rate == 0:
             pool.save(f'genes/{e // 100}{TAG}.pt')
@@ -85,6 +85,6 @@ if __name__ == '__main__':
         TAG = ''
 
     with open(LOG_FILE, 'w+') as f:
-        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len\n')
+        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len,tr_time,eval_time\n')
 
     train(args)
