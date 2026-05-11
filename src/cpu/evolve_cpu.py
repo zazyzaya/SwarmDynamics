@@ -8,20 +8,17 @@ import torch
 from src.dna import GenePool, MAX_GAME_LEN
 from src.cpu.env import Env
 
-POPULATION = 100
-GAME_SIZE = 100
 WIN_BONUS = 1000
-DEVICE = 'cpu' # Why is this faster than my GPU??
 
-def generation(gene_pool: GenePool, e):
+def generation(gene_pool: GenePool, e, win_ratio, game_size):
     st = time()
     blues,reds = torch.randperm(gene_pool.population).chunk(2)
     n_games = blues.size(0)
-    n_winners = gene_pool.population // 2
+    n_winners = gene_pool.population // win_ratio
 
     def game(g):
-        b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blues[g:g+1])
-        r_genes, r_sexes = gene_pool.create_swarm(GAME_SIZE, reds[g:g+1])
+        b_genes, b_sexes = gene_pool.create_swarm(game_size, blues[g:g+1])
+        r_genes, r_sexes = gene_pool.create_swarm(game_size, reds[g:g+1])
 
         env = Env(
             b_genes.squeeze(0), b_sexes.squeeze(0),
@@ -35,8 +32,8 @@ def generation(gene_pool: GenePool, e):
             if game_over.any():
                 break
 
-        b_kills = env.b_kills.sum() / GAME_SIZE
-        r_kills = env.r_kills.sum() / GAME_SIZE
+        b_kills = env.b_kills.sum() / game_size
+        r_kills = env.r_kills.sum() / game_size
         game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
@@ -75,17 +72,19 @@ def generation(gene_pool: GenePool, e):
     return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
 
 
-def evaluate(gene_pool: GenePool):
+def evaluate(gene_pool: GenePool, game_size):
     st = time()
+    DEVICE = gene_pool.device
+
     default = GenePool(1, device=DEVICE, use_baseline=True)
     n_games = gene_pool.population
 
     print("\tEvaluating... ", end='', flush=True)
     def game(g):
         blue_queen = torch.tensor([g], device=DEVICE)
-        b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blue_queen)
+        b_genes, b_sexes = gene_pool.create_swarm(game_size, blue_queen)
 
-        r_genes, r_sexes = default.create_swarm(GAME_SIZE, torch.tensor([0]))
+        r_genes, r_sexes = default.create_swarm(game_size, torch.tensor([0]))
 
         env = Env(
             b_genes.squeeze(0), b_sexes.squeeze(0),
@@ -98,8 +97,8 @@ def evaluate(gene_pool: GenePool):
             if game_over.any():
                 break
 
-        b_kills = env.b_kills.sum() / GAME_SIZE
-        r_kills = env.r_kills.sum() / GAME_SIZE
+        b_kills = env.b_kills.sum() / game_size
+        r_kills = env.r_kills.sum() / game_size
         game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
@@ -113,41 +112,3 @@ def evaluate(gene_pool: GenePool):
 
     return fitness
 
-def train():
-    pool = GenePool(POPULATION, device=DEVICE, hybrid_init=True)
-
-    log = 'log.txt'
-    best = 0
-
-    for e in range(100_000):
-        stats = generation(pool, e)
-
-        if e % 10 == 0:
-            scores = evaluate(pool)
-
-            avg = sum(scores) / len(scores)
-            max_v = max(scores)
-
-            print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
-            if avg > best:
-                best = avg
-                print('*')
-                pool.save('genes/best.pt')
-            else:
-                print()
-
-        else:
-            avg = ''; max_v = ''
-
-        with open(log, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])}\n')
-
-        if e % 100 == 0:
-            pool.save(f'genes/{e // 100}.pt')
-
-        pool.save('genes/current.pt')
-
-if __name__ == '__main__':
-    with open('log.txt', 'w+') as f:
-        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len\n')
-    train()

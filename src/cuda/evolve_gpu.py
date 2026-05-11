@@ -7,19 +7,20 @@ from src.dna import GenePool, MAX_GAME_LEN
 from src.cuda.env import Env
 
 POPULATION = 1000
-GAME_SIZE = 100
+game_size = 100
 DEVICE = 0
 
-def generation(gene_pool: GenePool, e):
+def generation(gene_pool: GenePool, e, win_ratio, game_size):
     st = time()
+    DEVICE = gene_pool.device
 
     blues, reds = torch.randperm(gene_pool.population, device=DEVICE).chunk(2)
 
     BATCH_SIZE = blues.size(0)
-    n_winners = gene_pool.population // 10
+    n_winners = gene_pool.population // win_ratio
 
-    b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blues)
-    r_genes, r_sexes = gene_pool.create_swarm(GAME_SIZE, reds)
+    b_genes, b_sexes = gene_pool.create_swarm(game_size, blues)
+    r_genes, r_sexes = gene_pool.create_swarm(game_size, reds)
     env = Env(b_genes, b_sexes, r_genes, r_sexes)
 
     final_game_over = torch.zeros(BATCH_SIZE, 2, dtype=torch.bool, device=DEVICE)
@@ -46,9 +47,6 @@ def generation(gene_pool: GenePool, e):
 
     # Rank Queens based on the sum of their swarm's performance
     for b in range(BATCH_SIZE):
-        game_over = final_game_over[b]
-        draw = game_over.sum() == 0 or game_over.sum() == 2
-
         blue_queen = blues[b]
         red_queen = reds[b]
         game_len = game_lengths[b]
@@ -57,8 +55,8 @@ def generation(gene_pool: GenePool, e):
         # especially ones where there's a tie because one team asymmetrically killed
         # most of the others drones, but a few escaped and hid until time ran out,
         # the more dangerous queen gets points
-        b_kills = env.b_kills[b].sum() / GAME_SIZE
-        r_kills = env.r_kills[b].sum() / GAME_SIZE
+        b_kills = env.b_kills[b].sum() / game_size
+        r_kills = env.r_kills[b].sum() / game_size
 
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
         scores[blue_queen] = b_score
@@ -80,13 +78,14 @@ def generation(gene_pool: GenePool, e):
         f"({en-st:0.2f}s)"
     )
 
-
     gene_pool.reproduce(winners.indices)
     return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len
 
 
-def evaluate(gene_pool: GenePool):
+def evaluate(gene_pool: GenePool, game_size):
     st = time()
+    DEVICE = gene_pool.device
+
     # We only need 1 Baseline Queen to test against
     default = GenePool(1, device=DEVICE, use_baseline=True)
 
@@ -96,15 +95,15 @@ def evaluate(gene_pool: GenePool):
 
     # 1. Generate all 100 Evolved Swarms simultaneously
     blue_queens = torch.arange(BATCH_SIZE, device=DEVICE)
-    b_genes, b_sexes = gene_pool.create_swarm(GAME_SIZE, blue_queens)
+    b_genes, b_sexes = gene_pool.create_swarm(game_size, blue_queens)
 
     # 2. Generate the 1 Default Swarm
     red_queen = torch.tensor([0], device=DEVICE)
-    r_genes_single, r_sexes_single = default.create_swarm(GAME_SIZE, red_queen)
+    r_genes_single, r_sexes_single = default.create_swarm(game_size, red_queen)
 
     # 3. Broadcast the Default Swarm 100 times so it can fight every evolved team!
-    r_genes = r_genes_single.expand(BATCH_SIZE, GAME_SIZE, -1)
-    r_sexes = r_sexes_single.expand(BATCH_SIZE, GAME_SIZE)
+    r_genes = r_genes_single.expand(BATCH_SIZE, game_size, -1)
+    r_sexes = r_sexes_single.expand(BATCH_SIZE, game_size)
 
     env = Env(b_genes, b_sexes, r_genes, r_sexes)
 
@@ -134,51 +133,11 @@ def evaluate(gene_pool: GenePool):
     # Get fitness score
     scores = torch.zeros(BATCH_SIZE, device=DEVICE)
     for b in range(BATCH_SIZE):
-        b_kills = env.b_kills[b].sum() / GAME_SIZE
-        r_kills = env.r_kills[b].sum() / GAME_SIZE
+        b_kills = env.b_kills[b].sum() / game_size
+        r_kills = env.r_kills[b].sum() / game_size
         game_len = steps_to_win[b]
 
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
         scores[b] = b_score
 
     return scores.cpu().tolist()
-
-
-def train():
-    pool = GenePool(POPULATION, device=DEVICE, hybrid_init=True)
-
-    log = 'log.txt'
-    best = 0
-
-    for e in range(100_000):
-        stats = generation(pool, e)
-
-        if e % 10 == 0:
-            scores = evaluate(pool)
-
-            avg = sum(scores) / len(scores)
-            max_v = max(scores)
-
-            print(f'\tAvg: {avg:0.4f}, Best: {max_v:0.4f}', end='')
-            if avg > best:
-                best = avg
-                print('*')
-                pool.save('genes/best.pt')
-            else:
-                print()
-
-        else:
-            avg = ''; max_v = ''
-
-        with open(log, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])}\n')
-
-        if e % 100 == 0:
-            pool.save(f'genes/{e // 100}.pt')
-
-        pool.save('genes/current.pt')
-
-if __name__ == '__main__':
-    with open('log.txt', 'w+') as f:
-        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len\n')
-    train()
