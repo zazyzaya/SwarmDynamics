@@ -7,9 +7,9 @@ from src.cpu.env import EnvCPU as Env
 from src.dna import GenePool, MAX_GAME_LEN
 from src.generators import generate_random_columns
 from src.phys_globals import CEILING
-from src.viz_util import SIZE, _3d_columns, get_triangles_3d as get_triangles, project_topdown_single
+from src.viz_util import SIZE, _3d_columns, get_triangles_3d as get_triangles, project_topdown_single, painters_alg
 
-N_OBSTACLES = 10
+N_OBSTACLES = 15
 
 ap = ArgumentParser()
 ap.add_argument('--self-play', action='store_true')
@@ -57,30 +57,16 @@ while dpg.is_dearpygui_running():
     # 1. Clear the previous frame's pixels
     dpg.delete_item("main_drawlist", children_only=True)
 
-    # Draw obstacles
-    _3d_columns(obs_pos, obs_z, obs_r)
+    # Get draw instructions
+    col_f, col_c = _3d_columns(obs_pos, obs_z, obs_r)
+    b_f, b_c = get_triangles(env.blue, (0,255,255))
+    r_f, r_c = get_triangles(env.red,(255,0,0))
 
-    # Draw the boids
-    blue_tris = get_triangles(env.blue)
-    red_tris = get_triangles(env.red)
-
-    # Draw Blue Team
-    for p1, p2, p3 in blue_tris:
-        dpg.draw_triangle(
-            p1=p1, p2=p2, p3=p3,
-            color=(0, 255, 255, 255),  # Outline
-            fill=(0, 255, 255, 150),   # Slightly transparent fill looks cool when they stack
-            parent="main_drawlist"
-        )
-
-    # Draw Red Team
-    for p1, p2, p3 in red_tris:
-        dpg.draw_triangle(
-            p1=p1, p2=p2, p3=p3,
-            color=(255, 0, 0, 255),
-            fill=(255, 0, 0, 150),
-            parent="main_drawlist"
-        )
+    # Draw in depth order for 3d effect
+    painters_alg(
+        col_f + b_f + r_f,
+        col_c + b_c + r_c
+    )
 
     # 2. Draw and update active explosions
     for exp in active_explosions[:]:  # Iterate over a slice [:] so we can safely remove items

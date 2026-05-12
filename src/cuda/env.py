@@ -11,8 +11,8 @@ class EnvCUDA(Env):
         device = blue_genes.device
         self.B, self.N = blue_genes.shape[:2]
 
-        blue_swarm = DroneSwarmCUDA(blue_genes, blue_sexes, offset=torch.tensor([0.25, 0.25, 0]))
-        red_swarm = DroneSwarmCUDA(red_genes, red_sexes, offset=torch.tensor([0.75, 0.75, 0]))
+        blue_swarm = DroneSwarmCUDA(blue_genes, blue_sexes, offset=torch.tensor([0.0, 0.0, 0]))
+        red_swarm = DroneSwarmCUDA(red_genes, red_sexes, offset=torch.tensor([1., 1., 0]))
 
         if obstacles is None:
             obstacles = (torch.empty((self.B, 0, 3,2)), torch.empty((self.B, 0, 1)))

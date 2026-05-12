@@ -8,8 +8,8 @@ class EnvCPU(Env):
     def __init__(self, blue_genes, blue_sexes, red_genes, red_sexes, obstacles=None):
         device = blue_genes.device
 
-        blue_swarm = DroneSwarmCPU(blue_genes, blue_sexes, offset=torch.tensor([0.25, 0.25, 0]).to(device))
-        red_swarm = DroneSwarmCPU(red_genes, red_sexes, offset=torch.tensor([0.75, 0.75, 0]).to(device))
+        blue_swarm = DroneSwarmCPU(blue_genes, blue_sexes, offset=torch.tensor([0., 0., 0]).to(device))
+        red_swarm = DroneSwarmCPU(red_genes, red_sexes, offset=torch.tensor([1., 1., 0]).to(device))
 
         self.n_blue = blue_genes.size(0)
         self.n_red = red_genes.size(0)

@@ -6,7 +6,7 @@ import torch
 from src.phys_globals import CEILING
 
 SIZE = 1000
-X_TILT = -0.0015
+X_TILT = -0.00
 Y_TILT = 0.025
 
 def project_topdown_single(x, y, z, screen_w, screen_h):
@@ -35,6 +35,8 @@ def _3d_columns(obs_centers, obs_heights, obs_r):
     sorted_r = obs_r[sort_idx]
 
     scale = SIZE * 0.8
+    to_draw =[]
+    coords =[]
 
     # 2. Run the loop on the sorted data
     for i, center in enumerate(sorted_centers.tolist()):
@@ -57,32 +59,46 @@ def _3d_columns(obs_centers, obs_heights, obs_r):
         ny = (dx / L) * screen_radius
 
         # A. Base Circle
-        dpg.draw_circle(
-            center=[base_x, base_y], radius=screen_radius,
-            color=(wall_color, wall_color, wall_color, 255),
-            fill=(wall_color, wall_color, wall_color, 255), parent="main_drawlist"
-        )
+        to_draw.append((
+            dpg.draw_circle,
+            dict(
+                center=[base_x, base_y], radius=screen_radius,
+                color=(wall_color, wall_color, wall_color, 255),
+                fill=(wall_color, wall_color, wall_color, 255), parent="main_drawlist"
+            )
+        ))
+        coords.append(center[1])
 
         # B. The Walls
-        dpg.draw_polygon(
-            points=[
-                [base_x + nx, base_y + ny],
-                [base_x - nx, base_y - ny],
-                [top_x - nx, top_y - ny],
-                [top_x + nx, top_y + ny],
-            ],
-            color=(wall_color, wall_color, wall_color, 255),
-            fill=(wall_color, wall_color, wall_color, 255), parent="main_drawlist"
-        )
+        to_draw.append((
+            dpg.draw_polygon,
+            dict(
+                points=[
+                    [base_x + nx, base_y + ny],
+                    [base_x - nx, base_y - ny],
+                    [top_x - nx, top_y - ny],
+                    [top_x + nx, top_y + ny],
+                ],
+                color=(wall_color, wall_color, wall_color, 255),
+                fill=(wall_color, wall_color, wall_color, 255), parent="main_drawlist"
+            )
+        ))
+        coords.append(center[1] + 1e-5)
 
         # C. The Roof
-        dpg.draw_circle(
-            center=[top_x, top_y], radius=screen_radius,
-            color=(0, 0, 0, 255),
-            fill=(roof_color, roof_color, roof_color, 255), parent="main_drawlist"
-        )
+        to_draw.append((
+            dpg.draw_circle,
+            dict(
+                center=[top_x, top_y], radius=screen_radius,
+                color=(0, 0, 0, 255),
+                fill=(roof_color, roof_color, roof_color, 255), parent="main_drawlist"
+            )
+        ))
+        coords.append(center[1] + 2e-5)
 
-def get_triangles_3d(swarm, base_scale=3.0, z_factor=1.5):
+    return to_draw, coords
+
+def get_triangles_3d(swarm, color, base_scale=3.0, z_factor=1.5):
     # --- 1. Project Positions (Using the shared function!) ---
     screen_x, screen_y = project_topdown_single(
         swarm.s[:, 0], swarm.s[:, 1], swarm.s[:, 2], SIZE, SIZE
@@ -107,7 +123,22 @@ def get_triangles_3d(swarm, base_scale=3.0, z_factor=1.5):
     p2 = back_center + perp * (tri_scale * 0.5)
     p3 = back_center - perp * (tri_scale * 0.5)
 
-    return torch.stack((p1, p2, p3), dim=1).detach().tolist()
+    to_draw, coords = [],[]
+    points = torch.stack((p1, p2, p3), dim=1).detach().tolist()
+    for i,(p1, p2, p3) in enumerate(points):
+        to_draw.append((
+            dpg.draw_triangle,
+            dict(
+                p1=p1, p2=p2, p3=p3,
+                color=(*color, 255),  # Outline
+                fill=(*color, 150),   # Slightly transparent fill looks cool when they stack
+                parent="main_drawlist"
+            )
+        ))
+        coords.append(swarm.s[i,1].item())
+
+    return to_draw, coords
+
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # 1. 2D positions and dynamically scaled sizes based on Z-height
@@ -135,3 +166,11 @@ def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # 5. Stack and convert to a Python list for Dear PyGui
     # Output shape becomes (N, 3, 2) -> list of [ [x1,y1], [x2,y2], [x3,y3] ]
     return torch.stack((p1, p2, p3), dim=1).detach().tolist()
+
+
+def painters_alg(commands, depths):
+    depth_order = torch.tensor(depths).argsort().tolist()
+
+    for i in depth_order:
+        fn,kwarg = commands[i]
+        fn(**kwarg)
