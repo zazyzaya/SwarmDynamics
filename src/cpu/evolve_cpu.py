@@ -11,9 +11,9 @@ from src.generators import generate_random_columns
 
 WIN_BONUS = 1000
 
-def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
+def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blues, reds):
     st = time()
-    blues,reds = torch.randperm(gene_pool.population).chunk(2)
+
     n_games = blues.size(0)
     n_winners = gene_pool.population // win_ratio
 
@@ -48,18 +48,21 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
     elapsed = en-st
 
     b_scores, r_scores, steps = zip(*scores)
-    b_scores = torch.tensor(b_scores, dtype=torch.float32)
-    r_scores = torch.tensor(r_scores, dtype=torch.float32)
+    game_scores = torch.tensor(b_scores + r_scores, dtype=torch.float32, device=gene_pool.device)
+    game_idx = torch.cat([blues, reds])
+    torch.where(game_idx == -1, gene_pool.population, game_idx) # scatter gets angry about negative idxs
 
-    ordered_scores = torch.zeros(gene_pool.population, dtype=torch.float32)
-    ordered_scores[blues] = b_scores
-    ordered_scores[reds] = r_scores
+    # Scatter scores back to their queen's index
+    scores = torch.zeros(gene_pool.population+1, device=gene_pool.device)
+    scores = torch.scatter_reduce(scores, -1, game_idx, game_scores, 'mean', include_self=False)
+    scores = scores[:-1] # Ignore games against queen -1 (baseline)
+    scores = scores[:-1].nan_to_num_(0.0) # Shoudn't happen, but guard against NaN if queen never played
 
     avg_len = sum(steps) / len(steps)
-    avg_fitness = ordered_scores.mean().item()
-    avg_fitness_std = ordered_scores.std().item()
+    avg_fitness = scores.mean().item()
+    avg_fitness_std = scores.std().item()
 
-    winners = ordered_scores.topk(n_winners)
+    winners = scores.topk(n_winners)
     top_fitness = winners.values.mean().item()
     top_fitness_std = winners.values.std().item()
     print(

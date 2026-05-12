@@ -47,7 +47,7 @@ class Env:
         return b_killed, r_killed, b_new_kills, r_new_kills
 
     def crashes(self):
-        if self.obstacles[0].size(-3):
+        if self.obstacles[0].size(-2):
             b_crashes = self.blue.column_collisions(*self.obstacles)
             r_crashes = self.red.column_collisions(*self.obstacles)
             return b_crashes, r_crashes

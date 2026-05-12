@@ -7,8 +7,8 @@ from src.cpu.env import EnvCPU as Env
 from src.dna import GenePool, MAX_GAME_LEN
 from src.generators import generate_random_columns
 from src.phys_globals import CEILING
+from src.viz_util import SIZE, _3d_columns, get_triangles_3d as get_triangles, project_topdown_single
 
-SIZE = 1000
 N_OBSTACLES = 10
 
 ap = ArgumentParser()
@@ -30,40 +30,12 @@ else:
     bg, bs = gp.create_swarm(100, torch.randint(0,gp.population, (1,)))
     rg, rs = default.create_swarm(100, torch.tensor([0]))
 
-obs_tri, obs_z = generate_random_columns(N_OBSTACLES, 'cpu')
+obs_pos, obs_z, obs_r = generate_random_columns(N_OBSTACLES, 'cpu')
 env = Env(
     bg.squeeze(0), bs.squeeze(0),
     rg.squeeze(0), rs.squeeze(0),
-    obstacles=(obs_tri, obs_z)
+    obstacles=(obs_pos, obs_z, obs_r)
 )
-
-def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
-    # 1. 2D positions and dynamically scaled sizes based on Z-height
-    pos_2d = swarm.s[:, :2] * SIZE
-    z = swarm.s[:, 2:3]
-    scale = base_scale + (z * z_factor)
-
-    # 2. Get normalized 2D velocity heading
-    v_2d = swarm.v[:, :2]
-    speed = torch.norm(v_2d, dim=1, keepdim=True).clamp(min=1e-5)
-    heading = v_2d / speed
-
-    # 3. Get the perpendicular vector to the heading (-y, x)
-    perp = torch.empty_like(heading)
-    perp[:, 0] = -heading[:, 1]
-    # Invert Y for perpendicular to match screen coordinates correctly
-    perp[:, 1] = heading[:, 0]
-
-    # 4. Calculate the three vertices
-    p1 = pos_2d + heading * scale                         # Tip
-    back_center = pos_2d - heading * (scale * 0.6)        # Base center
-    p2 = back_center + perp * (scale * 0.5)               # Left wing
-    p3 = back_center - perp * (scale * 0.5)               # Right wing
-
-    # 5. Stack and convert to a Python list for Dear PyGui
-    # Output shape becomes (N, 3, 2) -> list of [ [x1,y1], [x2,y2], [x3,y3] ]
-    return torch.stack((p1, p2, p3), dim=1).detach().tolist()
-
 
 dpg.create_context()
 dpg.create_viewport(title='PyTorch + Dear PyGui', width=SIZE, height=SIZE)
@@ -86,14 +58,7 @@ while dpg.is_dearpygui_running():
     dpg.delete_item("main_drawlist", children_only=True)
 
     # Draw obstacles
-    for i, (p1, p2, p3) in enumerate((obs_tri * SIZE).tolist()):
-        c = int(255 * ((obs_z[i] / CEILING)))
-        dpg.draw_triangle(
-            p1=p1, p2=p2, p3=p3,
-            color=(0, 0, 0, 255),
-            fill=(c, c, c, 255),
-            parent="main_drawlist"
-        )
+    _3d_columns(obs_pos, obs_z, obs_r)
 
     # Draw the boids
     blue_tris = get_triangles(env.blue)
@@ -156,8 +121,15 @@ while dpg.is_dearpygui_running():
 
         # Add drones shot down
         if new_explosions is not None and len(new_explosions) > 0:
-            # Convert PyTorch tensor to scaled pixel coordinates
-            pixel_exps = (new_explosions[:, :2] * SIZE).detach().tolist()
+            screen_x, screen_y = project_topdown_single(
+                new_explosions[:, 0],
+                new_explosions[:, 1],
+                new_explosions[:, 2],
+                SIZE, SIZE
+            )
+
+            # 2. Stack them back together and convert to a Python list
+            pixel_exps = torch.stack([screen_x, screen_y], dim=-1).detach().tolist()
 
             for p in pixel_exps:
                 active_explosions.append({
@@ -170,7 +142,15 @@ while dpg.is_dearpygui_running():
 
         # Add collisions
         if b_col is not None and len(b_col):
-            pixel_exps = (b_col[:, :2] * SIZE).detach().tolist()
+            screen_x, screen_y = project_topdown_single(
+                b_col[:, 0],
+                b_col[:, 1],
+                b_col[:, 2],
+                SIZE, SIZE
+            )
+
+            # 2. Stack them back together and convert to a Python list
+            pixel_exps = torch.stack([screen_x, screen_y], dim=-1).detach().tolist()
 
             for p in pixel_exps:
                 active_explosions.append({
@@ -181,7 +161,15 @@ while dpg.is_dearpygui_running():
                     'fill': (0, 50, 255, 150)
                 })
         if r_col is not None and len(r_col):
-            pixel_exps = (r_col[:, :2] * SIZE).detach().tolist()
+            screen_x, screen_y = project_topdown_single(
+                r_col[:, 0],
+                r_col[:, 1],
+                r_col[:, 2],
+                SIZE, SIZE
+            )
+
+            # 2. Stack them back together and convert to a Python list
+            pixel_exps = torch.stack([screen_x, screen_y], dim=-1).detach().tolist()
 
             for p in pixel_exps:
                 active_explosions.append({

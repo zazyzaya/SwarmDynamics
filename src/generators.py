@@ -4,7 +4,7 @@ import torch
 
 from src.phys_globals import CEILING
 
-def generate_random_columns(num_columns, device, batch_size=None):
+def generate_random_triangles(num_columns, device, batch_size=None):
     """
     Generates T random triangular columns.
     If batch_size is provided, generates a unique map for every batch!
@@ -39,3 +39,25 @@ def generate_random_columns(num_columns, device, batch_size=None):
     vertices = centers.unsqueeze(-2) + offsets
 
     return vertices, heights
+
+def generate_random_columns(num_columns, device, batch_size=None):
+    """
+    Generates T random circular columns.
+    Returns:
+        centers: (B, T, 2) or (T, 2)
+        heights: (B, T) or (T,)
+    """
+    shape = (batch_size, num_columns) if batch_size else (num_columns,)
+    centers = (torch.rand(*shape, 2, device=device) * 0.8) + 0.1
+    heights = (torch.rand(*shape, device=device) * (4*CEILING / 5)) + CEILING / 5
+    radii = (torch.rand(*shape, device=device) * 0.03) + 0.02
+
+    return centers, heights, radii
+
+def generate_games(n, device, pct_self_play=1.):
+    blue = torch.randperm(n, device=device)
+    red = torch.randperm(n, device=device)
+    use_baseline = torch.rand(red.size(0), device=device)
+    red = torch.where(use_baseline > pct_self_play, -1, red)
+
+    return blue, red

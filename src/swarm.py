@@ -44,57 +44,24 @@ class DroneSwarm:
         clamped_speed = torch.clamp(speed, min=MIN_SPEED, max=MAX_SPEED)
         self.v = self.v * (clamped_speed / (speed + 1e-8))
 
-    def column_collisions(self, vertices, heights):
+    def column_collisions(self, centers, heights, radii):
         """
-        Calculates if drones have crashed into ANY of the T flat-topped triangular columns.
-            vertices: Tensor of shape ((B,) T, 3, 2)
-            heights: Tensor of shape (T,) or (T, 1)
+        Calculates if drones have crashed into ANY of the T flat-topped circular columns.
         """
-        if vertices is None or vertices.numel() == 0:
+        if centers is None or centers.numel() == 0:
             return torch.zeros(self.s.shape[:-1], dtype=torch.bool, device=self.device)
 
-        # 1. The Height Check
-        # Drone Z shape: (..., N, 1) | Heights shape: (..., 1, T)
         in_z = self.s[..., Z].unsqueeze(-1) < heights.unsqueeze(-2)
 
-        # 2. The 2D Cross Product Test
-        # Drone XY shape: (..., N, 1, 2)
         p = self.s[..., :2].unsqueeze(-2)
+        dist = torch.norm(p - centers.unsqueeze(-3), dim=-1)
+        inside_circle = dist <= radii.unsqueeze(-2)
 
-        # Extract the T vertices. Shapes are (..., T, 2)
-        v0, v1, v2 = vertices[..., 0, :], vertices[..., 1, :], vertices[..., 2, :]
+        crashes = inside_circle & in_z
 
-        # Edge vectors of the T triangles: (..., T, 2)
-        e0 = v1 - v0
-        e1 = v2 - v1
-        e2 = v0 - v2
-
-        # Vectors from vertices to drones.
-        # (..., N, 1, 2) - (..., 1, T, 2) -> PyTorch aligns the dimensions!
-        p0 = p - v0.unsqueeze(-3)
-        p1 = p - v1.unsqueeze(-3)
-        p2 = p - v2.unsqueeze(-3)
-
-        # Calculate 2D Cross Products
-        # Unpack edges and unsqueeze so (..., T) becomes (..., 1, T)
-        e0x, e0y = e0[..., 0].unsqueeze(-2), e0[..., 1].unsqueeze(-2)
-        e1x, e1y = e1[..., 0].unsqueeze(-2), e1[..., 1].unsqueeze(-2)
-        e2x, e2y = e2[..., 0].unsqueeze(-2), e2[..., 1].unsqueeze(-2)
-
-        c0 = (e0x * p0[..., 1]) - (e0y * p0[..., 0])
-        c1 = (e1x * p1[..., 1]) - (e1y * p1[..., 0])
-        c2 = (e2x * p2[..., 1]) - (e2y * p2[..., 0])
-
-        # Check if inside the footprint
-        inside_triangle = ((c0 >= 0) & (c1 >= 0) & (c2 >= 0)) | ((c0 <= 0) & (c1 <= 0) & (c2 <= 0))
-
-        # Combine height and footprint checks
-        crashes = inside_triangle & in_z
-
-        # Any collision is a death
         return crashes.any(dim=-1)
 
-    def boid(self, other_s, obs_verts, obs_heights):
+    def boid(self, other_s, obs_centers, obs_heights, obs_radii):
         """
         The massive unified Boid function. Using negative dims (-1, -2, -3) allows
         these matrices to calculate distance, sum, and multiply completely agnostic
@@ -146,35 +113,25 @@ class DroneSwarm:
 
         tot_dv = self.v + close_dv + align_dv + cohesion_dv + turn_dv
 
-        if obs_verts is not None and obs_heights is not None:
-            # Calculate the centers of the T columns: Shape (..., T, 2)
-            obs_centers = obs_verts.mean(dim=-2)
-
-            # Extract drone XY: (..., N, 1, 2)
+        # 4.5 Obstacle avoidance
+        if obs_centers is not None and obs_heights is not None:
             p = self.s[..., :2].unsqueeze(-2)
-
-            # Vector pointing from obstacle centers to drones: (..., N, T, 2)
             push_xy = p - obs_centers.unsqueeze(-3)
             dist_xy = torch.norm(push_xy, dim=-1)
 
-            # Are they too close AND below the roof? (..., N, T)
+            dynamic_radii = obs_radii.unsqueeze(-2)
+            avoid_margin_xy = dynamic_radii + AVOID_MARGIN_XY
             in_z_danger = self.s[..., Z].unsqueeze(-1) < (obs_heights.unsqueeze(-2) + AVOID_MARGIN_Z)
-            danger = (dist_xy < AVOID_MARGIN_XY) & in_z_danger & self.alive.unsqueeze(-1)
+            danger = (dist_xy < avoid_margin_xy) & in_z_danger & self.alive.unsqueeze(-1)
 
-            # Calculate push strength (closer = exponentially stronger)
-            push_strength = (AVOID_MARGIN_XY - dist_xy).clamp(min=0) / AVOID_MARGIN_XY
+            push_strength = (avoid_margin_xy - dist_xy).clamp(min=0) / avoid_margin_xy
             push_strength = push_strength * danger.float()
 
-            # Normalize direction
             push_dir = push_xy / (dist_xy.unsqueeze(-1) + 1e-8)
 
-            # Sum the forces pushing away from all T obstacles
             obs_dv_xy = (push_dir * push_strength.unsqueeze(-1)).sum(dim=-2)
-
-            # Add a slight upward thrust to help them fly over
             obs_dv_z = push_strength.sum(dim=-1).unsqueeze(-1)
 
-            # Combine into 3D vector and apply TURN_FACTOR multiplier
             obs_dv = torch.cat([obs_dv_xy, obs_dv_z], dim=-1)
             obs_dv = obs_dv * self.genes[..., Genes.OBSTACLE_AVOID].unsqueeze(-1) * TURN_FACTOR * 5.0
 

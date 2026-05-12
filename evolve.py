@@ -1,9 +1,33 @@
 from argparse import ArgumentParser
 
 from src.dna import GenePool
+from src.generators import generate_games
 
 LOG_FILE = ''
 TAG = ''
+DEVICE = ''
+
+class Annealer():
+    def __init__(self, step=0, max_steps=2_000_000, min_val=0.15):
+        '''
+        Will return a value in the range 1-min_val given
+        the current value of `step`. `step` is assumed to
+        be the *total number of simulations run*. E.g.
+        every time step is called, provide blues.size(0) to increment by
+        '''
+        self.step_n = step
+        self.max_steps = max_steps
+        self.min_val = min_val
+
+    def get_val(self):
+        '''
+        Use polynomial decay
+        '''
+        return (1-self.min_val) * (self.step_n / self.max_steps) ** 2
+
+    def step(self, steps):
+        self.step_n += steps
+        return self.get_val()
 
 def train(hyperparams):
     params = dict(
@@ -19,14 +43,21 @@ def train(hyperparams):
         hyperparams.population,
         **params
     )
+    annealer = Annealer(min_val=hyperparams.min_baseline_games)
+    pct_self_play = 0
 
     best = 0
     for e in range(100_000):
+        blues, reds = generate_games(pool.population, device=DEVICE, pct_self_play=pct_self_play)
+        pct_self_play = annealer.step(blues.size(0))
+
         stats = generation(
             pool, e,
             hyperparams.cull_rate,
             hyperparams.game_size,
-            hyperparams.num_obstacles
+            hyperparams.num_obstacles,
+            blues,
+            reds
         )
 
         if e % hyperparams.eval_rate == 0:
@@ -71,14 +102,17 @@ if __name__ == '__main__':
     ap.add_argument('--save-rate', default=100, type=int)
     ap.add_argument('--eval-rate', default=10, type=int)
     ap.add_argument('--num-obstacles', default=10, type=int)
+    ap.add_argument('--min-baseline-games', default=0.15, type=float)
     ap.add_argument('--tag')
 
     args = ap.parse_args()
 
     if args.device == 'cpu':
         from src.cpu.evolve_cpu import generation, evaluate
+        DEVICE = 'cpu'
     else:
         args.device = int(args.device)
+        DEVICE = args.device
         from src.cuda.evolve_gpu import generation, evaluate
 
     LOG_FILE = 'results/logs/'

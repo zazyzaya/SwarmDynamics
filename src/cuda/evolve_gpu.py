@@ -11,11 +11,9 @@ POPULATION = 1000
 game_size = 100
 DEVICE = 0
 
-def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
+def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blues, reds):
     st = time()
     DEVICE = gene_pool.device
-
-    blues, reds = torch.randperm(gene_pool.population, device=DEVICE).chunk(2)
 
     BATCH_SIZE = blues.size(0)
     n_winners = gene_pool.population // win_ratio
@@ -48,12 +46,11 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
         if finished.all():
             break
 
-    scores = torch.zeros(gene_pool.population, device=DEVICE)
+    scores_b = torch.zeros(blues.size(0), device=DEVICE)
+    scores_r = torch.zeros(reds.size(0), device=DEVICE)
 
     # Rank Queens based on the sum of their swarm's performance
     for b in range(BATCH_SIZE):
-        blue_queen = blues[b]
-        red_queen = reds[b]
         game_len = game_lengths[b]
 
         # Award kills regardless of who wins so in situations where there's a tie
@@ -64,8 +61,18 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
         r_kills = env.r_kills[b].sum() / game_size
 
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
-        scores[blue_queen] = b_score
-        scores[red_queen] = r_score
+        scores_b[b] = b_score
+        scores_r[b] = r_score
+
+    game_scores = torch.cat([scores_b, scores_r])
+    game_idx = torch.cat([blues, reds])
+    game_idx = torch.where(game_idx == -1, gene_pool.population, game_idx) # No neg indexes for scatter
+
+    # Scattter scores to the queen that generated them's idx
+    scores = torch.zeros(gene_pool.population + 1, device=DEVICE)
+    scores = torch.scatter_reduce(scores, -1, game_idx, game_scores, 'mean', include_self=False)
+    scores = scores[:-1] # Ignore games against queen -1 (baseline)
+    scores = scores.nan_to_num_(0.0) # Shouldn't happen, but if queen never plays, its score is NaN
 
     en = time()
     elapsed = en-st

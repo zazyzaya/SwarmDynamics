@@ -35,13 +35,17 @@ class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.05,
                  mute_stren=0.25, xover_alpha=0.1,
                  device='cpu', use_baseline=False, hybrid_init=True):
+
+        self.baseline = torch.cat([
+            DEFAULT.repeat(1,NUM_SEXES,1),
+            torch.zeros(1,NUM_SEXES,NUM_SEXES),
+            torch.zeros(1,NUM_SEXES,NUM_SEXES)
+        ], dim=-1).to(device)
+        self.baseline_meta = torch.ones(1,NUM_SEXES, device=device)
+
         # Boid params
         if use_baseline:
-            self.genes = DEFAULT.repeat(population, NUM_SEXES, 1).to(device)
-            follow_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
-            listen_bias = torch.zeros(population, NUM_SEXES, NUM_SEXES, device=device)
-
-            self.genes = torch.cat([self.genes, follow_bias, listen_bias], dim=-1)
+            self.genes = self.baseline.repeat(population,1,1)
 
         # Use boid flying params with randomized combat params
         elif hybrid_init:
@@ -93,13 +97,17 @@ class GenePool:
             queens = torch.arange(self.population, device=self.device)
 
         b = queens.size(0)
+        is_baseline = (queens == -1).unsqueeze(-1)
 
         child_sex_logits = self.meta_genes[queens] # Shape: (B, NUM_SEXES)
+        child_sex_logits = torch.where(is_baseline, self.baseline_meta, child_sex_logits)
+
         child_sex_probs = torch.softmax(child_sex_logits, dim=-1)
         childrens_sexes = torch.multinomial(child_sex_probs, swarm_size, replacement=True) # Shape: (B, swarm_size)
 
         # Retrieve the Queen's full genome -> Shape: (B, NUM_SEXES, G)
         queen_genes = self.genes[queens]
+        queen_genes = torch.where(is_baseline.unsqueeze(-1), self.baseline, queen_genes)
 
         b_idx = torch.arange(b, device=self.device).unsqueeze(1)
 

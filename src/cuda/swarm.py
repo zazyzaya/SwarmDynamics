@@ -10,8 +10,8 @@ class DroneSwarmCUDA(DroneSwarm):
         super().__init__(genes, sexes, genes.shape[:2], offset)
 
 
-    def update(self, other_s, killed, obst_pos, obst_z):
-        collisions = self.boid(other_s, obst_pos, obst_z)
+    def update(self, other_s, killed, *obstacles):
+        collisions = self.boid(other_s, *obstacles)
         self.s += self.v * DELTA_T
 
         if killed is None:

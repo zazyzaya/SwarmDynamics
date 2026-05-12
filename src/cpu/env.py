@@ -15,7 +15,7 @@ class EnvCPU(Env):
         self.n_red = red_genes.size(0)
 
         if obstacles is None:
-            obstacles = (torch.empty((0,3,2)), torch.empty((0, 1)))
+            obstacles = (torch.empty((0,2)), torch.empty((0, 1)), torch.empty((0,1)))
         self.obstacles = obstacles
 
         super().__init__(blue_swarm, red_swarm, (self.n_blue,), (self.n_red,), device, obstacles)

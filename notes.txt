@@ -33,9 +33,9 @@ Notes:
 - 	After several generations, the swarm seems to be good at killing other evolved swarms
 	but has difficulty fighting the baseline, non-aggressive one.
 	Maybe add in a round of fighting off the baseline swarm to keep the ability
-	to kill passive drones in the genepool?
+	to kill passive drones in the genepool? -- Done
 - 	Drones spin around rapidly when they're in a cloud of enemies. Possibly to
 	improve their odds of hitting one? Unclear why. Need to add in a rotational
 	velocity speed limit as well. IRL they would tear themselves apart form the
 	g-forces -- Fixed
-- 	Add in obstacles they can hide behind/crash into?
+- 	Add in obstacles they can hide behind/crash into? -- Done
