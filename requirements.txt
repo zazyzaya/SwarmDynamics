@@ -1,0 +1,5 @@
+dearpygui==2.3
+joblib==1.5.3
+pandas==3.0.3
+torch==2.11.0+cu130
+tqdm==4.67.3
