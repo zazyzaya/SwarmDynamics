@@ -2,6 +2,5 @@
 __pycache__/
 genes/*
 log.txt
-!genes/defaults.pt
-!genes/large_pop.pt
-!genes/rand_init.pt
+!genes/v1/*
+results/logs/log.txt # Default logfile

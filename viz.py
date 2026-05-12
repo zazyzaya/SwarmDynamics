@@ -3,16 +3,24 @@ from argparse import ArgumentParser
 import dearpygui.dearpygui as dpg
 import torch
 
+from src.cpu.env import EnvCPU as Env
 from src.dna import GenePool, MAX_GAME_LEN
-from src.cpu.env import Env
+from src.generators import generate_random_columns
+from src.phys_globals import CEILING
 
 SIZE = 1000
+N_OBSTACLES = 10
 
 ap = ArgumentParser()
 ap.add_argument('--self-play', action='store_true')
+ap.add_argument('--genes', default='baseline')
 args = ap.parse_args()
 
-gp = GenePool.load('genes/current_hybrid.pt', device='cpu')
+if args.genes == 'baseline':
+    gp = GenePool(100, use_baseline=True)
+else:
+    gp = GenePool.load(f'genes/{args.genes}.pt', device='cpu')
+
 default = GenePool(100, use_baseline=True)
 
 if args.self_play:
@@ -22,9 +30,11 @@ else:
     bg, bs = gp.create_swarm(100, torch.randint(0,gp.population, (1,)))
     rg, rs = default.create_swarm(100, torch.tensor([0]))
 
+obs_tri, obs_z = generate_random_columns(N_OBSTACLES, 'cpu')
 env = Env(
     bg.squeeze(0), bs.squeeze(0),
-    rg.squeeze(0), rs.squeeze(0)
+    rg.squeeze(0), rs.squeeze(0),
+    obstacles=(obs_tri, obs_z)
 )
 
 def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
@@ -54,6 +64,7 @@ def get_triangles(swarm, base_scale=3.0, z_factor=1.5):
     # Output shape becomes (N, 3, 2) -> list of [ [x1,y1], [x2,y2], [x3,y3] ]
     return torch.stack((p1, p2, p3), dim=1).detach().tolist()
 
+
 dpg.create_context()
 dpg.create_viewport(title='PyTorch + Dear PyGui', width=SIZE, height=SIZE)
 dpg.setup_dearpygui()
@@ -73,6 +84,16 @@ steps = 0
 while dpg.is_dearpygui_running():
     # 1. Clear the previous frame's pixels
     dpg.delete_item("main_drawlist", children_only=True)
+
+    # Draw obstacles
+    for i, (p1, p2, p3) in enumerate((obs_tri * SIZE).tolist()):
+        c = int(255 * ((obs_z[i] / CEILING)))
+        dpg.draw_triangle(
+            p1=p1, p2=p2, p3=p3,
+            color=(0, 0, 0, 255),
+            fill=(c, c, c, 255),
+            parent="main_drawlist"
+        )
 
     # Draw the boids
     blue_tris = get_triangles(env.blue)

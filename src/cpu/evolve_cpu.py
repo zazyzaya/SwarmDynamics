@@ -6,11 +6,12 @@ from tqdm import tqdm
 import torch
 
 from src.dna import GenePool, MAX_GAME_LEN
-from src.cpu.env import Env
+from src.cpu.env import EnvCPU as Env
+from src.generators import generate_random_columns
 
 WIN_BONUS = 1000
 
-def generation(gene_pool: GenePool, e, win_ratio, game_size):
+def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
     st = time()
     blues,reds = torch.randperm(gene_pool.population).chunk(2)
     n_games = blues.size(0)
@@ -22,7 +23,8 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
 
         env = Env(
             b_genes.squeeze(0), b_sexes.squeeze(0),
-            r_genes.squeeze(0), r_sexes.squeeze(0)
+            r_genes.squeeze(0), r_sexes.squeeze(0),
+            generate_random_columns(num_obstacles, device='cpu')
         )
 
         game_over = torch.zeros(2)
@@ -73,7 +75,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
     return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
 
 
-def evaluate(gene_pool: GenePool, game_size):
+def evaluate(gene_pool: GenePool, game_size, num_obstacles):
     st = time()
     DEVICE = gene_pool.device
 
@@ -89,7 +91,8 @@ def evaluate(gene_pool: GenePool, game_size):
 
         env = Env(
             b_genes.squeeze(0), b_sexes.squeeze(0),
-            r_genes.squeeze(0), r_sexes.squeeze(0)
+            r_genes.squeeze(0), r_sexes.squeeze(0),
+            generate_random_columns(num_obstacles, 'cpu')
         )
 
         game_over = torch.zeros(2)

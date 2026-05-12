@@ -25,11 +25,15 @@ def train(hyperparams):
         stats = generation(
             pool, e,
             hyperparams.cull_rate,
-            hyperparams.game_size
+            hyperparams.game_size,
+            hyperparams.num_obstacles
         )
 
         if e % hyperparams.eval_rate == 0:
-            scores, eval_t = evaluate(pool, hyperparams.game_size)
+            scores, eval_t = evaluate(
+                pool, hyperparams.game_size,
+                hyperparams.num_obstacles
+            )
 
             avg = sum(scores) / len(scores)
             max_v = max(scores)
@@ -66,6 +70,7 @@ if __name__ == '__main__':
     ap.add_argument('--xover-alpha', default=0.1, type=float)
     ap.add_argument('--save-rate', default=100, type=int)
     ap.add_argument('--eval-rate', default=10, type=int)
+    ap.add_argument('--num-obstacles', default=10, type=int)
     ap.add_argument('--tag')
 
     args = ap.parse_args()

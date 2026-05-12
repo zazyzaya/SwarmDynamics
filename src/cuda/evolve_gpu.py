@@ -4,13 +4,14 @@ from time import time
 import torch
 
 from src.dna import GenePool, MAX_GAME_LEN
-from src.cuda.env import Env
+from src.cuda.env import EnvCUDA as Env
+from src.generators import generate_random_columns
 
 POPULATION = 1000
 game_size = 100
 DEVICE = 0
 
-def generation(gene_pool: GenePool, e, win_ratio, game_size):
+def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles):
     st = time()
     DEVICE = gene_pool.device
 
@@ -21,7 +22,11 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
 
     b_genes, b_sexes = gene_pool.create_swarm(game_size, blues)
     r_genes, r_sexes = gene_pool.create_swarm(game_size, reds)
-    env = Env(b_genes, b_sexes, r_genes, r_sexes)
+    env = Env(
+        b_genes, b_sexes,
+        r_genes, r_sexes,
+        generate_random_columns(num_obstacles, DEVICE, BATCH_SIZE)
+    )
 
     final_game_over = torch.zeros(BATCH_SIZE, 2, dtype=torch.bool, device=DEVICE)
     finished = torch.zeros(BATCH_SIZE, dtype=torch.bool, device=DEVICE)
@@ -83,7 +88,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size):
     return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
 
 
-def evaluate(gene_pool: GenePool, game_size):
+def evaluate(gene_pool: GenePool, game_size, num_obstacles):
     st = time()
     DEVICE = gene_pool.device
 
@@ -106,7 +111,11 @@ def evaluate(gene_pool: GenePool, game_size):
     r_genes = r_genes_single.expand(BATCH_SIZE, game_size, -1)
     r_sexes = r_sexes_single.expand(BATCH_SIZE, game_size)
 
-    env = Env(b_genes, b_sexes, r_genes, r_sexes)
+    env = Env(
+        b_genes, b_sexes,
+        r_genes, r_sexes,
+        generate_random_columns(num_obstacles, DEVICE, BATCH_SIZE)
+    )
 
     # Trackers
     steps_to_win = torch.full((BATCH_SIZE,), MAX_GAME_LEN, device=DEVICE)

@@ -11,22 +11,23 @@ class Genes(IntEnum):
     BETA=1      # Alignment
     GAMMA=2     # Cohesion
     TURN=3      # Avoid boundaries
-    PROTECTED=4 # How close they can get
-    MARGIN=5    # How low they dare to swoop
-    FEAR=6      # How much they avoid predators
-    DESIRE=7    # How much they desire targets
-    CAN_FIRE=8  # Make some drones only scouts
-    FOLLOW_BIAS_VAL=9   # How much each dron biases clan pull
-    LISTEN_BIAS_VAL=10   # How much to weight recon from others
-    FOLLOW_BIAS=11       # Preference to follow each clan
-    LISTEN_BIAS=11+NUM_SEXES    # Preference to listen to each clan
+    OBSTACLE_AVOID=4 # How daring they are around obstacles
+    PROTECTED=5 # How close they can get to each other
+    MARGIN=6    # How low they dare to swoop
+    FEAR=7      # How much they avoid predators
+    DESIRE=8    # How much they desire targets
+    CAN_FIRE=9  # Make some drones only scouts
+    FOLLOW_BIAS_VAL=10   # How much each dron biases clan pull
+    LISTEN_BIAS_VAL=11   # How much to weight recon from others
+    FOLLOW_BIAS=12       # Preference to follow each clan
+    LISTEN_BIAS=12+NUM_SEXES    # Preference to listen to each clan
 
     LEN = LISTEN_BIAS+NUM_SEXES
 
 # Decent starting params after some fiddling
 DEFAULT = torch.tensor([
     0.05, 0.05, 0.0005,
-    0.2, 0.1, 0.1,
+    0.2, 0.2, 0.1, 0.1,
     0, 0.25, 0.05, 0.1, 0.5
 ])
 

@@ -37,4 +37,5 @@ Notes:
 - 	Drones spin around rapidly when they're in a cloud of enemies. Possibly to
 	improve their odds of hitting one? Unclear why. Need to add in a rotational
 	velocity speed limit as well. IRL they would tear themselves apart form the
-	g-forces
+	g-forces -- Fixed
+- 	Add in obstacles they can hide behind/crash into?
