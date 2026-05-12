@@ -41,7 +41,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
         return b_score, r_score, steps
 
-    scores = Parallel(n_games, prefer='processes')(
+    scores = Parallel(min(n_games, 64), prefer='processes')(
         delayed(game)(g) for g in range(0, n_games)
     )
     en = time()
@@ -50,7 +50,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
     b_scores, r_scores, steps = zip(*scores)
     game_scores = torch.tensor(b_scores + r_scores, dtype=torch.float32, device=gene_pool.device)
     game_idx = torch.cat([blues, reds])
-    torch.where(game_idx == -1, gene_pool.population, game_idx) # scatter gets angry about negative idxs
+    game_idx = torch.where(game_idx == -1, gene_pool.population, game_idx) # scatter gets angry about negative idxs
 
     # Scatter scores back to their queen's index
     scores = torch.zeros(gene_pool.population+1, device=gene_pool.device)
