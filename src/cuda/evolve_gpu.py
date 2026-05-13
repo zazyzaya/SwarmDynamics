@@ -11,12 +11,10 @@ POPULATION = 1000
 game_size = 100
 DEVICE = 0
 
-def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blues, reds):
+def generation(gene_pool: GenePool, e, game_size, num_obstacles, blues, reds):
     st = time()
     DEVICE = gene_pool.device
-
     BATCH_SIZE = blues.size(0)
-    n_winners = gene_pool.population // win_ratio
 
     b_genes, b_sexes = gene_pool.create_swarm(game_size, blues)
     r_genes, r_sexes = gene_pool.create_swarm(game_size, reds)
@@ -89,7 +87,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
     avg_fitness = scores.mean().item()
     avg_fitness_std = scores.std().item()
 
-    winners = scores.topk(n_winners)
+    winners = scores.topk(int(gene_pool.population * 0.05))
     top_fitness = winners.values.mean().item()
     top_fitness_std = winners.values.std().item()
     print(
@@ -99,7 +97,7 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         f"({elapsed:0.2f}s)"
     )
 
-    return winners.indices, (
+    return scores, winners.indices, (
         avg_fitness, top_fitness,
         avg_fitness_std, top_fitness_std,
         avg_len, elapsed

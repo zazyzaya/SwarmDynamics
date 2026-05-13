@@ -41,7 +41,8 @@ BONUS = 2
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.05,
                  mute_stren=0.25, xover_alpha=0.1,
-                 device='cpu', use_baseline=False, hybrid_init=True, init_mutate=False):
+                 device='cpu', use_baseline=False, hybrid_init=False,
+                 init_mutate=False, tournament_size=5):
 
         self.baseline = torch.cat([
             DEFAULT.repeat(1,NUM_SEXES,1),
@@ -77,28 +78,40 @@ class GenePool:
         self.mute_stren = mute_stren
         self.xover_rate = xover_rate
         self.xover_alpha = xover_alpha
+        self.tournament_size = tournament_size
+
+        # Updated in evolve loop
+        self.scores = torch.zeros(population, device=device)
 
         # For baseline init during training
         if init_mutate:
             self.mutate(self.genes, self.meta_genes)
 
-    def reproduce(self, winners):
-        num_winners = winners.size(0)
-
-        # Assume winners are already sorted, and rescue top 5%
-        n_elite = winners.size(0)//20
-        elite = winners[:n_elite]
-
-        p1 = torch.randint(0, num_winners, (self.population,), device=self.device)
-        p2 = torch.randint(0, num_winners, (self.population,), device=self.device)
-
-        children = self.ab_crossover(
-            winners[p1], winners[p2]
+    def tournament(self):
+        tournies = torch.randint(
+            0,self.population,
+            (self.population*2, self.tournament_size),
+            device=self.device
         )
 
+        tourney_fitness = self.scores[tournies]
+        winner_indices = tourney_fitness.argmax(dim=-1)
+        parent_indices = tournies[torch.arange(self.population*2, device=self.device), winner_indices]
+
+        return parent_indices.chunk(2)
+
+    def reproduce(self, *args):
+        # Rescue top 5%
+        n_elite = int(self.population * 0.05)
+        elites = self.scores.argsort(descending=True)
+        elites = elites[:n_elite]
+
+        p1, p2 = self.tournament()
+        children = self.ab_crossover(p1,p2)
+
         genes, meta = self.mutate(*children)
-        genes[:n_elite] = self.genes[elite]
-        meta[:n_elite] = self.meta_genes[elite]
+        genes[:n_elite] = self.genes[elites]
+        meta[:n_elite] = self.meta_genes[elites]
 
         self.genes = genes
         self.meta_genes = meta
@@ -137,6 +150,14 @@ class GenePool:
         with open(outf, 'wb+') as f:
             pickle.dump(self, f)
 
+    def diversity(self):
+        '''
+        Calculate avg distance from mean of each DNA sequence
+        '''
+        flat_dna = self.genes.view(self.population, -1)
+        diversity = torch.pdist(flat_dna).mean().item()
+        return diversity
+
     @staticmethod
     def load(fname, device=None):
         with open(fname, 'rb') as f:
@@ -147,6 +168,7 @@ class GenePool:
             obj.meta_genes = obj.meta_genes.to(device)
             obj.baseline = obj.baseline.to(device)
             obj.baseline_meta = obj.baseline_meta.to(device)
+            obj.scores = obj.scores.to(device)
             obj.device = device
 
         return obj

@@ -37,7 +37,8 @@ def train(hyperparams):
         mute_rate=hyperparams.mute_rate,
         mute_stren=hyperparams.mute_stren,
         hybrid_init=hyperparams.gene_init == 'hybrid',
-        use_baseline=hyperparams.gene_init == 'baseline'
+        use_baseline=hyperparams.gene_init == 'baseline',
+        tournament_size=hyperparams.tournament_size
     )
     pool = GenePool(
         hyperparams.population,
@@ -55,18 +56,19 @@ def train(hyperparams):
         blues, reds = generate_games(pool.population, device=DEVICE, pct_self_play=pct_self_play)
         pct_self_play = annealer.step()
 
-        winners, stats = generation(
+        scores, top_k, stats = generation(
             pool, e,
-            hyperparams.cull_rate,
             hyperparams.game_size,
             hyperparams.num_obstacles,
             blues,
             reds
         )
+        pool.scores = scores
+        diversity = pool.diversity()
 
         if e % hyperparams.eval_rate == 0:
             scores, eval_t = evaluate(
-                pool, winners, hyperparams.game_size,
+                pool, top_k, hyperparams.game_size,
                 hyperparams.num_obstacles
             )
 
@@ -85,21 +87,21 @@ def train(hyperparams):
             avg = ''; max_v = ''; eval_t=0
 
         with open(LOG_FILE, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])},{pct_self_play},{eval_t}\n')
+            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])},{pct_self_play},{diversity},{eval_t}\n')
 
         if e % hyperparams.save_rate == 0:
             pool.save(f'genes/{e // 100}{TAG}.pt')
 
         pool.save(f'genes/current{TAG}.pt')
-        pool.reproduce(winners)
+        pool.reproduce()
 
 if __name__ == '__main__':
     ap = ArgumentParser()
     ap.add_argument('--game-size', default=50, type=int)
     ap.add_argument('--population', default=100, type=int)
-    ap.add_argument('--cull-rate', default=2, type=int)
+    ap.add_argument('--tournament-size', default=5, type=int)
     ap.add_argument('--device', default='cpu')
-    ap.add_argument('--gene-init', default='baseline', choices=['hybrid', 'random', 'baseline'])
+    ap.add_argument('--gene-init', default='hybrid', choices=['hybrid', 'random', 'baseline'])
     ap.add_argument('--xover-rate', default=0.75, type=float)
     ap.add_argument('--mute-rate', default=0.05, type=float)
     ap.add_argument('--mute-stren', default=0.25, type=float)
@@ -130,6 +132,6 @@ if __name__ == '__main__':
         TAG = ''
 
     with open(LOG_FILE, 'w+') as f:
-        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len,tr_time,pct_self_play,eval_time\n')
+        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len,tr_time,pct_self_play,diversity,eval_time\n')
 
     train(args)
