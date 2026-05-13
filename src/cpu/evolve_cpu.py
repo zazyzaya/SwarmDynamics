@@ -38,7 +38,13 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         r_kills = env.r_kills.sum() / game_size
         game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
-        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
+        b_wiped = game_over[0].item()
+        r_wiped = game_over[1].item()
+
+        b_won = r_wiped and not b_wiped
+        r_won = b_wiped and not r_wiped
+
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, b_won, r_won, game_len)
         return b_score, r_score, steps
 
     scores = Parallel(min(n_games, 64), prefer='processes')(
@@ -72,22 +78,23 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         f"({elapsed:0.2f}s)"
     )
 
+    return winners.indices, (
+        avg_fitness, top_fitness,
+        avg_fitness_std, top_fitness_std,
+        avg_len, elapsed
+    )
 
-    gene_pool.reproduce(winners.indices)
 
-    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
-
-
-def evaluate(gene_pool: GenePool, game_size, num_obstacles):
+def evaluate(gene_pool: GenePool, winners, game_size, num_obstacles):
     st = time()
     DEVICE = gene_pool.device
 
     default = GenePool(1, device=DEVICE, use_baseline=True)
-    n_games = gene_pool.population
+    n_games = winners.size(0)
 
     print("\tEvaluating... ", end='', flush=True)
     def game(g):
-        blue_queen = torch.tensor([g], device=DEVICE)
+        blue_queen = winners[g:g+1]
         b_genes, b_sexes = gene_pool.create_swarm(game_size, blue_queen)
 
         r_genes, r_sexes = default.create_swarm(game_size, torch.tensor([0]))
@@ -108,7 +115,13 @@ def evaluate(gene_pool: GenePool, game_size, num_obstacles):
         r_kills = env.r_kills.sum() / game_size
         game_len = max(env.b_alive_time.max(), env.r_alive_time.max())
 
-        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len)
+        b_wiped = game_over[0].item()
+        r_wiped = game_over[1].item()
+
+        b_won = r_wiped and not b_wiped
+        r_won = b_wiped and not r_wiped
+
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, b_won, r_won, game_len)
         return b_score
 
     fitness = Parallel(n_games, prefer='processes')(

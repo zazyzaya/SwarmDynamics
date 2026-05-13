@@ -60,7 +60,15 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         b_kills = env.b_kills[b].sum() / game_size
         r_kills = env.r_kills[b].sum() / game_size
 
-        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
+        # final_game_over[b] holds [blue_dead, red_dead]
+        b_wiped = final_game_over[b, 0].item()
+        r_wiped = final_game_over[b, 1].item()
+
+        # A win is wiping the enemy while surviving yourself
+        b_won = r_wiped and not b_wiped
+        r_won = b_wiped and not r_wiped
+
+        b_score, r_score = GenePool.fitness(b_kills, r_kills, b_won, r_won, game_len / MAX_GAME_LEN)
         scores_b[b] = b_score
         scores_r[b] = r_score
 
@@ -91,24 +99,26 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
         f"({elapsed:0.2f}s)"
     )
 
-    gene_pool.reproduce(winners.indices)
-    return avg_fitness, top_fitness, avg_fitness_std, top_fitness_std, avg_len, elapsed
+    return winners.indices, (
+        avg_fitness, top_fitness,
+        avg_fitness_std, top_fitness_std,
+        avg_len, elapsed
+    )
 
 
-def evaluate(gene_pool: GenePool, game_size, num_obstacles):
+def evaluate(gene_pool: GenePool, winners, game_size, num_obstacles):
     st = time()
     DEVICE = gene_pool.device
 
     # We only need 1 Baseline Queen to test against
     default = GenePool(1, device=DEVICE, use_baseline=True)
 
-    BATCH_SIZE = gene_pool.population
+    BATCH_SIZE = winners.size(0)
 
     print("\tEvaluating... ", end='', flush=True)
 
-    # 1. Generate all 100 Evolved Swarms simultaneously
-    blue_queens = torch.arange(BATCH_SIZE, device=DEVICE)
-    b_genes, b_sexes = gene_pool.create_swarm(game_size, blue_queens)
+    # 1. Generate all winning Swarms simultaneously
+    b_genes, b_sexes = gene_pool.create_swarm(game_size, winners)
 
     # 2. Generate the 1 Default Swarm
     red_queen = torch.tensor([0], device=DEVICE)
@@ -125,20 +135,20 @@ def evaluate(gene_pool: GenePool, game_size, num_obstacles):
     )
 
     # Trackers
-    steps_to_win = torch.full((BATCH_SIZE,), MAX_GAME_LEN, device=DEVICE)
+    # Setup identical tracking to the training loop
+    final_game_over = torch.zeros(BATCH_SIZE, 2, dtype=torch.bool, device=DEVICE)
     finished = torch.zeros(BATCH_SIZE, dtype=torch.bool, device=DEVICE)
+    game_lengths = torch.full((BATCH_SIZE,), MAX_GAME_LEN, dtype=torch.float, device=DEVICE)
 
     for step in range(MAX_GAME_LEN):
         step_game_over = env.update()
 
+        # Identify games that finished on this exact frame
         just_finished = step_game_over.any(dim=1) & ~finished
 
-        # If red lost [1] and blue didn't [0], it's a valid blue win
-        blue_won = step_game_over[:, 1] & ~step_game_over[:, 0]
-
-        # Record the exact step for the valid wins
-        valid_wins = just_finished & blue_won
-        steps_to_win[valid_wins] = step
+        # Lock in length and win/loss state
+        game_lengths[just_finished] = step
+        final_game_over[just_finished] = step_game_over[just_finished]
 
         finished = finished | just_finished
         if finished.all():
@@ -153,9 +163,18 @@ def evaluate(gene_pool: GenePool, game_size, num_obstacles):
     for b in range(BATCH_SIZE):
         b_kills = env.b_kills[b].sum() / game_size
         r_kills = env.r_kills[b].sum() / game_size
-        game_len = steps_to_win[b]
+        game_len = game_lengths[b]
 
-        b_score, r_score = GenePool.fitness(b_kills, r_kills, game_len / MAX_GAME_LEN)
+        b_wiped = final_game_over[b, 0].item()
+        r_wiped = final_game_over[b, 1].item()
+
+        b_won = r_wiped and not b_wiped
+        r_won = b_wiped and not r_wiped
+
+        # We only care about saving the blue score in eval, but we still pass everything!
+        b_score, r_score = GenePool.fitness(
+            b_kills, r_kills, b_won, r_won, game_len / MAX_GAME_LEN
+        )
         scores[b] = b_score
 
     return scores.cpu().tolist(), elapsed

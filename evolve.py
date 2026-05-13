@@ -41,6 +41,7 @@ def train(hyperparams):
     )
     pool = GenePool(
         hyperparams.population,
+        init_mutate=True,
         **params
     )
     annealer = Annealer(
@@ -54,7 +55,7 @@ def train(hyperparams):
         blues, reds = generate_games(pool.population, device=DEVICE, pct_self_play=pct_self_play)
         pct_self_play = annealer.step()
 
-        stats = generation(
+        winners, stats = generation(
             pool, e,
             hyperparams.cull_rate,
             hyperparams.game_size,
@@ -65,7 +66,7 @@ def train(hyperparams):
 
         if e % hyperparams.eval_rate == 0:
             scores, eval_t = evaluate(
-                pool, hyperparams.game_size,
+                pool, winners, hyperparams.game_size,
                 hyperparams.num_obstacles
             )
 
@@ -90,14 +91,15 @@ def train(hyperparams):
             pool.save(f'genes/{e // 100}{TAG}.pt')
 
         pool.save(f'genes/current{TAG}.pt')
+        pool.reproduce(winners)
 
 if __name__ == '__main__':
     ap = ArgumentParser()
-    ap.add_argument('--game-size', default=100, type=int)
+    ap.add_argument('--game-size', default=50, type=int)
     ap.add_argument('--population', default=100, type=int)
     ap.add_argument('--cull-rate', default=2, type=int)
     ap.add_argument('--device', default='cpu')
-    ap.add_argument('--gene-init', default='hybrid', choices=['hybrid', 'random', 'baseline'])
+    ap.add_argument('--gene-init', default='baseline', choices=['hybrid', 'random', 'baseline'])
     ap.add_argument('--xover-rate', default=0.75, type=float)
     ap.add_argument('--mute-rate', default=0.05, type=float)
     ap.add_argument('--mute-stren', default=0.25, type=float)

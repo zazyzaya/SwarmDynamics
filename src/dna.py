@@ -69,10 +69,6 @@ class GenePool:
         # Prob of generating children of each sex
         self.meta_genes = torch.rand(population, NUM_SEXES, device=device)
 
-        # For baseline init during training
-        if init_mutate:
-            self.mutate(self.genes, self.meta_genes)
-
         self.population = population
         self.device = device
 
@@ -81,6 +77,10 @@ class GenePool:
         self.mute_stren = mute_stren
         self.xover_rate = xover_rate
         self.xover_alpha = xover_alpha
+
+        # For baseline init during training
+        if init_mutate:
+            self.mutate(self.genes, self.meta_genes)
 
     def reproduce(self, winners):
         num_winners = winners.size(0)
@@ -204,7 +204,7 @@ class GenePool:
         return children
 
     @staticmethod
-    def fitness(bkills, rkills, game_len):
+    def fitness(bkills, rkills, b_won, r_won, game_len):
         '''
         Takes normalized count of kills (min 0, max 1)
         and normalized game len (min 0, max 1) and calculates
@@ -216,9 +216,9 @@ class GenePool:
         bscore = bkills
         rscore = rkills
 
-        if bkills == 1:
+        if b_won:
             bscore += (1-game_len)
-        elif rkills == 1:
+        elif r_won:
             rscore += (1-game_len)
 
         return bscore, rscore
