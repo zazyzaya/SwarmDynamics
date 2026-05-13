@@ -9,7 +9,7 @@ from src.generators import generate_random_columns
 from src.phys_globals import CEILING
 from src.viz_util import SIZE, _3d_columns, get_triangles_3d as get_triangles, project_topdown_single, painters_alg
 
-N_OBSTACLES = 15
+N_OBSTACLES = 10
 
 ap = ArgumentParser()
 ap.add_argument('--self-play', action='store_true')

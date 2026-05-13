@@ -6,8 +6,16 @@ import torch
 from src.phys_globals import CEILING
 
 SIZE = 1000
+
+# Isometric view
 X_TILT = -0.00
-Y_TILT = 0.025
+Y_TILT = 0.125 / CEILING
+
+# Planes perspective warp
+Z_FACTOR = 7.5 / CEILING
+TIP_WARP = 0.3
+TAIL_WARP = 0.5
+WING_WARP = 0.1
 
 def project_topdown_single(x, y, z, screen_w, screen_h):
     """
@@ -98,44 +106,101 @@ def _3d_columns(obs_centers, obs_heights, obs_r):
 
     return to_draw, coords
 
-def get_triangles_3d(swarm, color, base_scale=3.0, z_factor=1.5):
-    # --- 1. Project Positions (Using the shared function!) ---
+def get_triangles_3d(swarm, color, base_scale=3.0):
+    # --- 1. Project Positions ---
     screen_x, screen_y = project_topdown_single(
         swarm.s[:, 0], swarm.s[:, 1], swarm.s[:, 2], SIZE, SIZE
     )
+    shadow_x, shadow_y = project_topdown_single(
+        swarm.s[:, 0], swarm.s[:, 1], 0, SIZE, SIZE
+    )
 
     screen_centers = torch.stack([screen_x, screen_y], dim=-1)
+    shadow_centers = torch.stack([shadow_x, shadow_y], dim=-1)
 
-    # --- 2. Standard 2D Velocity Heading ---
+    # --- 2. Calculate Velocity & Pitch ---
+    v_3d = swarm.v
+    speed_3d = torch.norm(v_3d, dim=1, keepdim=True).clamp(min=1e-5)
+
+    # 2D Heading for the screen
     v_2d = swarm.v[:, :2]
-    speed = torch.norm(v_2d, dim=1, keepdim=True).clamp(min=1e-5)
-    heading = v_2d / speed
+    speed_2d = torch.norm(v_2d, dim=1, keepdim=True).clamp(min=1e-5)
+    heading = v_2d / speed_2d
 
-    # --- 3. Draw Triangles ---
-    tri_scale = base_scale + (swarm.s[:, 2].unsqueeze(-1) * z_factor)
+    # Pitch ranges from -1.0 (straight down) to 1.0 (straight up)
+    pitch = v_3d[:, 2:3] / speed_3d
+
+    # --- 3. Dynamic Foreshortening (The 3D Illusion) ---
+    tri_scale = base_scale + (swarm.s[:, 2].unsqueeze(-1) * Z_FACTOR)
+
+    # Tip stretches forward if pointing UP
+    tip_len = tri_scale * (1.0 + pitch * TIP_WARP)
+
+    # Tail tucks underneath if pointing UP, stretches back if pointing DOWN
+    tail_len = tri_scale * 0.6 * (1.0 - pitch * TAIL_WARP)
+
+    # Wings get slightly narrower if pointing UP (tail is further away)
+    wing_width = tri_scale * 0.5 * (1.0 - pitch * WING_WARP)
 
     perp = torch.empty_like(heading)
     perp[:, 0] = -heading[:, 1]
     perp[:, 1] = heading[:, 0]
 
-    p1 = screen_centers + heading * tri_scale
-    back_center = screen_centers - heading * (tri_scale * 0.6)
-    p2 = back_center + perp * (tri_scale * 0.5)
-    p3 = back_center - perp * (tri_scale * 0.5)
+    # Apply the dynamic lengths to the Drone
+    p1 = screen_centers + heading * tip_len
+    back_center = screen_centers - heading * tail_len
+    p2 = back_center + perp * wing_width
+    p3 = back_center - perp * wing_width
 
-    to_draw, coords = [],[]
+    # Apply the exact same dynamic lengths to the Shadows!
+    s1 = shadow_centers + heading * tip_len
+    shadow_back_center = shadow_centers - heading * tail_len
+    s2 = shadow_back_center + perp * wing_width
+    s3 = shadow_back_center - perp * wing_width
+
+    to_draw, coords = [], []
     points = torch.stack((p1, p2, p3), dim=1).detach().tolist()
-    for i,(p1, p2, p3) in enumerate(points):
+    shadows = torch.stack((s1, s2, s3), dim=1).detach().tolist()
+
+    for i, (p1, p2, p3) in enumerate(points):
+        # 1. Draw the Drone
         to_draw.append((
             dpg.draw_triangle,
             dict(
                 p1=p1, p2=p2, p3=p3,
-                color=(*color, 255),  # Outline
-                fill=(*color, 150),   # Slightly transparent fill looks cool when they stack
+                color=(*color, 255),
+                fill=(*color, 150),
                 parent="main_drawlist"
             )
         ))
-        coords.append(swarm.s[i,1].item())
+        coords.append(swarm.s[i, 1].item())
+
+        # 2. Draw the Shadow (Fake Blur via 3-Pass Stacking)
+        s1, s2, s3 = shadows[i]
+        c_x, c_y = shadow_centers[i].tolist()
+        base_depth = shadow_centers[i, 1].item()
+
+        blur_passes = [
+            (1.60, 15, 0.0),
+            (1.30, 25, 1e-6),
+            (1.00, 50, 2e-6)
+        ]
+
+        for scale, alpha, z_offset in blur_passes:
+            b1 = [c_x + (s1[0] - c_x) * scale, c_y + (s1[1] - c_y) * scale]
+            b2 = [c_x + (s2[0] - c_x) * scale, c_y + (s2[1] - c_y) * scale]
+            b3 = [c_x + (s3[0] - c_x) * scale, c_y + (s3[1] - c_y) * scale]
+
+            to_draw.append((
+                dpg.draw_triangle,
+                dict(
+                    p1=b1, p2=b2, p3=b3,
+                    color=(0, 0, 0, 0),
+                    fill=(0, 0, 0, alpha),
+                    parent='main_drawlist'
+                )
+            ))
+            coords.append(base_depth + z_offset)
 
     return to_draw, coords
 

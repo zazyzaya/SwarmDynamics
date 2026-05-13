@@ -8,7 +8,7 @@ TAG = ''
 DEVICE = ''
 
 class Annealer():
-    def __init__(self, step=0, max_steps=2_000_000, min_val=0.15):
+    def __init__(self, step=0, max_steps=1_000_000, min_val=0.15):
         '''
         Will return a value in the range 1-min_val given
         the current value of `step`. `step` is assumed to

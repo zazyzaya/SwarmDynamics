@@ -1,13 +1,22 @@
 DELTA_T = 0.002
 
 X=0; Y=1; Z=2
-CEILING = 5.
+CEILING = 1.
 TURN_FACTOR = 1.5
 TURN_MARGIN = 0.1
 
-RANGE = 0.1
+# Combat
+FIRING_RANGE = 0.1
 CYLINDER_RADIUS = 0.01
-COMM_RANGE = 0.15 # Arbitrary
+
+# Sensors
+COMM_RANGE_MAX = 0.6 # Can see everything from center
+COMM_RANGE_MIN = 0.15
+
+VIZ_RANGE_MAX = 0.5 # Can see almost everything from center
+VIZ_RANGE_MIN = 0.15
+
+# Flight
 MAX_SPEED = 6
 MIN_SPEED = 2
 MAX_TURN_FORCE = 0.1

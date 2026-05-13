@@ -4,6 +4,7 @@ Changes:
 
 * Added obstacles
 * Added gene to avoid obstacles
+* Added genes for comm and vision ranges (bounded by phys_globals)
 * Corrected physics glitch to cap rotational velocity
 * Using annealed curriculum learning to always have to fight some default drones
 

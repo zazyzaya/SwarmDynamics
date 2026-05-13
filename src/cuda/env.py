@@ -1,10 +1,7 @@
-import pandas as pd
 import torch
 
-from src.dna import Genes
 from src.env import Env
 from src.cuda.swarm import DroneSwarmCUDA
-from src.phys_globals import RANGE, CYLINDER_RADIUS
 
 class EnvCUDA(Env):
     def __init__(self, blue_genes, blue_sexes, red_genes, red_sexes, obstacles=None):

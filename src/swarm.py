@@ -68,6 +68,8 @@ class DroneSwarm:
         to whether they are 2D (CPU) or 3D (GPU batched).
         """
         dist = torch.norm(self.s.unsqueeze(-2) - self.s.unsqueeze(-3), dim=-1)
+        comm_range = COMM_RANGE_MIN + self.genes[..., Genes.COMM_RANGE:Genes.COMM_RANGE+1] * (COMM_RANGE_MAX - COMM_RANGE_MIN)
+        viz_range = VIZ_RANGE_MIN + self.genes[..., Genes.VIZ_RANGE:Genes.VIZ_RANGE+1] * (VIZ_RANGE_MAX - VIZ_RANGE_MIN)
 
         # Check for friendly collisions
         eye = torch.eye(self.s.size(-2), device=self.device).bool()
@@ -84,7 +86,7 @@ class DroneSwarm:
         close_dv = (self.s * close_count - dv) * self.genes[..., Genes.ALPHA:Genes.ALPHA+1]
 
         # Step 1.5: Find neighbors
-        visible = (dist < COMM_RANGE) & alive_mask
+        visible = (dist < comm_range) & alive_mask
         neighbors = visible.sum(dim=-1, keepdim=True)
         has_neighbors = (neighbors > 0).float()
 
@@ -146,7 +148,8 @@ class DroneSwarm:
             enemy_collisions = ((enemy_dist < COLLISION_DIST) & self_alive & other_alive).sum(dim=-1).bool()
             collisions = collisions | enemy_collisions
 
-            enemy_visible = (enemy_dist < COMM_RANGE) & self_alive & other_alive
+            # Using Dynamic VIZ_RANGE
+            enemy_visible = (enemy_dist < viz_range) & self_alive & other_alive
             enemy_counts = enemy_visible.sum(dim=-1, keepdim=True)
             has_enemies = (enemy_counts > 0).float()
 
