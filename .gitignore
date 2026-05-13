@@ -4,3 +4,4 @@ genes/*
 log.txt
 !genes/v1/
 results/logs/log.txt # Default logfile
+scratch.py

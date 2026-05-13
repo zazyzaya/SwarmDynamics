@@ -156,23 +156,33 @@ class DroneSwarm:
             enemy_sum = enemy_visible.float() @ other_s
             enemy_center = enemy_sum / enemy_counts.clamp(min=1)
 
-            desire_dv = (enemy_center - self.s) * has_enemies * self.genes[..., Genes.DESIRE:Genes.DESIRE+1]
             fear_dv = (self.s - enemy_center) * has_enemies * self.genes[..., Genes.FEAR:Genes.FEAR+1]
-            tot_dv += desire_dv + fear_dv
+            tot_dv += fear_dv
 
             # Step 6: Send intel to others
-            valid_senders = self.sexes * has_enemies
-            broadcast = valid_senders.unsqueeze(-1) * enemy_center.unsqueeze(-2)
+            sender_status = self.sexes * has_enemies
 
-            global_msg_sum = broadcast.sum(dim=-3)
-            global_msg_counts = valid_senders.sum(dim=-2)
-            msg = global_msg_sum / global_msg_counts.clamp(min=1).unsqueeze(-1)
+            # 2. Map senders to receivers using the `visible` mask from Step 1.5
+            # Shape: (..., N_i, N_j, NUM_SEXES)
+            local_senders = visible.unsqueeze(-1) * sender_status.unsqueeze(-3)
 
+            # 3. Attach coordinates to the local broadcasts
+            # Shape: (..., N_i, N_j, NUM_SEXES, 3)
+            local_broadcast = local_senders.unsqueeze(-1) * enemy_center.unsqueeze(-3).unsqueeze(-2)
+
+            # 4. Sum and average purely based on local availability
+            # Shape: (..., N_i, NUM_SEXES, 3)
+            local_msg_sum = local_broadcast.sum(dim=-3)
+            local_msg_counts = local_senders.sum(dim=-2)
+            local_msg = local_msg_sum / local_msg_counts.clamp(min=1).unsqueeze(-1)
+
+            # 5. Apply the receiver's genetic listen preferences
             listen_prefs = self.genes[..., Genes.LISTEN_BIAS : Genes.LISTEN_BIAS + NUM_SEXES]
-            has_signal = (global_msg_counts > 0).float().unsqueeze(-2)
+            has_signal = (local_msg_counts > 0).float()
             active_listen_prefs = listen_prefs * has_signal
 
-            channel_dv = msg.unsqueeze(-3) - self.s.unsqueeze(-2)
+            # 6. Calculate the localized steering vector
+            channel_dv = local_msg - self.s.unsqueeze(-2)
             radio_dv = (active_listen_prefs.unsqueeze(-1) * channel_dv).sum(dim=-2)
             radio_dv *= self.genes[..., Genes.LISTEN_BIAS_VAL : Genes.LISTEN_BIAS_VAL + 1]
             tot_dv += radio_dv

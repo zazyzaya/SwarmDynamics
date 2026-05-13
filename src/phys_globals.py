@@ -10,10 +10,10 @@ FIRING_RANGE = 0.1
 CYLINDER_RADIUS = 0.01
 
 # Sensors
-COMM_RANGE_MAX = 0.6 # Can see everything from center
+COMM_RANGE_MAX = 0.3
 COMM_RANGE_MIN = 0.15
 
-VIZ_RANGE_MAX = 0.5 # Can see almost everything from center
+VIZ_RANGE_MAX = 0.25
 VIZ_RANGE_MIN = 0.15
 
 # Flight

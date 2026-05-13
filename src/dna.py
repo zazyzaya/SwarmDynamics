@@ -15,14 +15,13 @@ class Genes(IntEnum):
     PROTECTED=5 # How close they can get to each other
     MARGIN=6    # How low they dare to swoop
     FEAR=7      # How much they avoid predators
-    DESIRE=8    # How much they desire targets
-    CAN_FIRE=9  # Make some drones only scouts
-    COMM_RANGE=10        # How far messages propagate
-    VIZ_RANGE=11         # How far they can see
-    FOLLOW_BIAS_VAL=12   # How much each dron biases clan pull
-    LISTEN_BIAS_VAL=13   # How much to weight recon from others
-    FOLLOW_BIAS=14       # Preference to follow each clan
-    LISTEN_BIAS=14+NUM_SEXES    # Preference to listen to each clan
+    CAN_FIRE=8  # Make some drones only scouts
+    COMM_RANGE=9        # How far messages propagate
+    VIZ_RANGE=10         # How far they can see
+    FOLLOW_BIAS_VAL=11   # How much each dron biases clan pull
+    LISTEN_BIAS_VAL=12   # How much to weight recon from others
+    FOLLOW_BIAS=13       # Preference to follow each clan
+    LISTEN_BIAS=13+NUM_SEXES    # Preference to listen to each clan
 
     LEN = LISTEN_BIAS+NUM_SEXES
 
@@ -30,13 +29,14 @@ class Genes(IntEnum):
 DEFAULT = torch.tensor([
     0.05, 0.05, 0.0005, # Flight params (0-2)
     0.2, 0.2, 0.1, 0.1, # Boundary avoidance (3-6)
-    0, 0.25,            # Fear/desire (7-8)
-    0.5,                # Can fire (9)
+    0.25,               # Fear (7)
+    0.1,                # Can fire (8)
     0.25, 0.25,         # Comm/viz range (NORMALIZED!)
     0., 0.              # Biases (12-13)
 ])
 
 NORMALIZE = [Genes.COMM_RANGE, Genes.VIZ_RANGE]
+BONUS = 2
 
 class GenePool:
     def __init__(self, population, xover_rate=0.75, mute_rate=0.05,
@@ -125,6 +125,12 @@ class GenePool:
         swarm_genes = queen_genes[b_idx, childrens_sexes] # Resulting Shape: (B, swarm_size, G)
         swarm_genes[..., NORMALIZE] = torch.sigmoid(swarm_genes[..., NORMALIZE])
 
+        # Tradeoffs
+        # Drones without weapons have better intel
+        scouts = swarm_genes[..., Genes.CAN_FIRE] < 0
+        swarm_genes[scouts, Genes.VIZ_RANGE] *= BONUS
+        swarm_genes[scouts, Genes.COMM_RANGE] *= BONUS
+
         return swarm_genes, childrens_sexes
 
     def save(self, outf):
@@ -136,9 +142,11 @@ class GenePool:
         with open(fname, 'rb') as f:
             obj: GenePool = CPU_Unpickler(f).load()
 
-        if device:
+        if device is not None:
             obj.genes = obj.genes.to(device)
             obj.meta_genes = obj.meta_genes.to(device)
+            obj.baseline = obj.baseline.to(device)
+            obj.baseline_meta = obj.baseline_meta.to(device)
             obj.device = device
 
         return obj
