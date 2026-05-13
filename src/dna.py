@@ -128,8 +128,8 @@ class GenePool:
         # Tradeoffs
         # Drones without weapons have better intel
         scouts = swarm_genes[..., Genes.CAN_FIRE] < 0
-        swarm_genes[scouts, Genes.VIZ_RANGE] *= BONUS
-        swarm_genes[scouts, Genes.COMM_RANGE] *= BONUS
+        swarm_genes[..., Genes.VIZ_RANGE][scouts] *= BONUS
+        swarm_genes[..., Genes.COMM_RANGE][scouts] *= BONUS
 
         return swarm_genes, childrens_sexes
 
