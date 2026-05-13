@@ -86,8 +86,8 @@ def generation(gene_pool: GenePool, e, win_ratio, game_size, num_obstacles, blue
     top_fitness_std = winners.values.std().item()
     print(
         f"[{e}] Steps: {int(avg_len)},",
-        f"Avg fitness: {avg_fitness:0.4f}+/-{avg_fitness_std:0.2f},",
-        f"Top fitness: {top_fitness:0.4f}+/-{top_fitness_std:0.2f}",
+        f"Avg fitness: {avg_fitness:0.4f} (+/-) {avg_fitness_std:0.2f},",
+        f"Top fitness: {top_fitness:0.4f} (+/-) {top_fitness_std:0.2f}",
         f"({elapsed:0.2f}s)"
     )
 

@@ -8,12 +8,12 @@ TAG = ''
 DEVICE = ''
 
 class Annealer():
-    def __init__(self, step=0, max_steps=1_000_000, min_val=0.15):
+    def __init__(self, step=0, max_steps=15_000, min_val=0.15):
         '''
         Will return a value in the range 1-min_val given
-        the current value of `step`. `step` is assumed to
-        be the *total number of simulations run*. E.g.
-        every time step is called, provide blues.size(0) to increment by
+        the current value of `step`. Estimate number of steps
+        based on how long a timestep takes, and set max_steps to
+        be what about a day of training would get
         '''
         self.step_n = step
         self.max_steps = max_steps
@@ -23,10 +23,10 @@ class Annealer():
         '''
         Use polynomial decay
         '''
-        return (1-self.min_val) * (self.step_n / self.max_steps) ** 2
+        return (1-self.min_val) * (min(1,(self.step_n / self.max_steps)) ** 2)
 
-    def step(self, steps):
-        self.step_n += steps
+    def step(self):
+        self.step_n += 1
         return self.get_val()
 
 def train(hyperparams):
@@ -43,13 +43,16 @@ def train(hyperparams):
         hyperparams.population,
         **params
     )
-    annealer = Annealer(min_val=hyperparams.min_baseline_games)
+    annealer = Annealer(
+        min_val=hyperparams.min_baseline_games,
+        max_steps=hyperparams.annealing_steps
+    )
     pct_self_play = 0
 
     best = 0
     for e in range(100_000):
         blues, reds = generate_games(pool.population, device=DEVICE, pct_self_play=pct_self_play)
-        pct_self_play = annealer.step(blues.size(0))
+        pct_self_play = annealer.step()
 
         stats = generation(
             pool, e,
@@ -81,7 +84,7 @@ def train(hyperparams):
             avg = ''; max_v = ''; eval_t=0
 
         with open(LOG_FILE, 'a') as f:
-            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])},{eval_t}\n')
+            f.write(f'{e},{avg},{max_v},{",".join([str(s) for s in stats])},{pct_self_play},{eval_t}\n')
 
         if e % hyperparams.save_rate == 0:
             pool.save(f'genes/{e // 100}{TAG}.pt')
@@ -103,6 +106,7 @@ if __name__ == '__main__':
     ap.add_argument('--eval-rate', default=10, type=int)
     ap.add_argument('--num-obstacles', default=10, type=int)
     ap.add_argument('--min-baseline-games', default=0.15, type=float)
+    ap.add_argument('--annealing-steps', default=5000)
     ap.add_argument('--tag')
 
     args = ap.parse_args()
@@ -124,6 +128,6 @@ if __name__ == '__main__':
         TAG = ''
 
     with open(LOG_FILE, 'w+') as f:
-        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len,tr_time,eval_time\n')
+        f.write('generation,eval_avg,eval_best,avg_fitness,topk_fitness,avg_fitness_std,topk_fitness_std,avg_len,tr_time,pct_self_play,eval_time\n')
 
     train(args)
